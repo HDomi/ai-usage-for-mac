@@ -1,7 +1,7 @@
 # 🔋 AI Usage for Mac
 
 > MacBook **노치(Notch)** 양옆에 **Claude Code · Cursor · Codex** 사용량 한도를 배터리 아이콘으로 상시 표시하는 네이티브 앱입니다.
-> 노치를 클릭하면 아래로 패널이 펼쳐지며 상세 게이지·리셋 시간·비용·업데이트 버튼이 나옵니다.
+> 노치를 클릭하면 아래로 패널이 펼쳐지며 Claude · Codex · Cursor 3열의 겹친 도넛 링·리셋 시간·비용·업데이트 버튼이 나옵니다.
 
 메뉴바 앱이나 SwiftBar 같은 호스트 없이 단독으로 동작합니다.
 
@@ -91,7 +91,7 @@ cd ai-usage-for-mac
 │ NotchController  노치 위치 계산(NSScreen.auxiliaryTop*Area) · NSPanel(메뉴바 위 레벨) · 클릭/ESC   │
 │ NotchViewModel   2분 타이머 · 업데이트 체크 · 로그인 항목(SMAppService) · 날개 폭 정책(full/compact/숨김)│
 │ MenuBarProbe     앱 메뉴 폭(AXMenuBar) · 상태 아이콘 폭(CGWindowList) 측정 → 날개 폭 좌우 따로 조절     │
-│ Views/           NotchView(접힘: 배터리 알약) · ExpandedBody(펼침: 게이지·비용·푸터)               │
+│ Views/           NotchView(접힘: 배터리 알약) · ExpandedBody(펼침: Claude·Codex·Cursor 3열 도넛 링)  │
 │ UsageCore        node core/usage-core.js 실행 → JSON 디코드                                        │
 │ Updater          GitHub VERSION 조회 · update.sh 실행                                              │
 └───────────────────────────────────────▲────────────────────────────────────────────────────────────┘

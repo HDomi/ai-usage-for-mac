@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 노치를 클릭하면 펼쳐지는 상세 패널
+/// 노치를 클릭하면 펼쳐지는 상세 패널. 왼쪽부터 Claude · Codex · Cursor 3등분, 각각 겹친 도넛 링
 struct ExpandedBody: View {
     @ObservedObject var vm: NotchViewModel
 
@@ -9,13 +9,10 @@ struct ExpandedBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let s = vm.snapshot {
-                if s.hasClaude { claudeSection(s) }
-                if s.hasCursor, let cu = s.cursor { cursorSection(cu, rate: s.exchangeRateKRW) }
-                if s.hasCodex, let cx = s.codex { codexSection(cx) }
-                if s.isEmpty {
-                    Text("Claude Code / Cursor / Codex 로그인 후 사용량이 표시됩니다")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.gray)
+                HStack(alignment: .top, spacing: 16) {
+                    claudeColumn(s).frame(maxWidth: .infinity, alignment: .leading)
+                    codexColumn(s).frame(maxWidth: .infinity, alignment: .leading)
+                    cursorColumn(s).frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else if vm.isFetching {
                 HStack(spacing: 8) {
@@ -43,46 +40,58 @@ struct ExpandedBody: View {
     // MARK: Claude
 
     @ViewBuilder
-    private func claudeSection(_ s: UsageSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(
-                title: "Claude Code",
-                live: s.claude?.live,
-                measuredAt: s.claude?.measuredAt,
-                source: "Anthropic usage API", now: now
-            )
+    private func claudeColumn(_ s: UsageSnapshot) -> some View {
+        let rings: [RingSpec] = {
             if let c = s.claude {
-                if let w = c.fiveHour { GaugeRow(label: "5시간", window: w, now: now) }
-                if let w = c.weekly { GaugeRow(label: "주간", window: w, now: now) }
-                if let w = c.fable { GaugeRow(label: w.model ?? "모델", window: w, now: now) }
-            } else if let b = s.claudeBlock {
-                GaugeRow(label: "5시간", window: UsageWindow(pct: b.elapsedPct, resetsAt: now + b.remainMin * 60), now: now)
+                var r: [RingSpec] = []
+                if let w = c.fiveHour { r.append(.init(id: "5h", label: "5시간", window: w)) }
+                if let w = c.weekly { r.append(.init(id: "wk", label: "주간", window: w)) }
+                if let w = c.fable { r.append(.init(id: "model", label: w.model ?? "모델", window: w)) }
+                return r
             }
             if let b = s.claudeBlock {
-                SubLine(
-                    "블록 비용 \(Fmt.usd(b.cost)) (\(Fmt.krw(b.cost, rate: s.exchangeRateKRW)))  ·  \(Fmt.tok(b.tokens)) 토큰  ·  \(b.costPerHour.map { Fmt.usd($0, 1) } ?? "?")/h"
-                )
+                return [.init(id: "5h", label: "5시간",
+                              window: UsageWindow(pct: b.elapsedPct, resetsAt: now + b.remainMin * 60))]
+            }
+            return []
+        }()
+        UsageColumn(
+            title: "Claude", live: s.claude?.live, measuredAt: s.claude?.measuredAt,
+            source: "Anthropic usage API", rings: rings, now: now
+        ) {
+            if let b = s.claudeBlock {
+                SubLine("블록 \(Fmt.usd(b.cost)) (\(Fmt.krw(b.cost, rate: s.exchangeRateKRW)))")
+                SubLine("\(Fmt.tok(b.tokens)) 토큰  ·  \(b.costPerHour.map { Fmt.usd($0, 1) } ?? "?")/h")
             }
             if let m = s.claudeModels, !m.models.isEmpty {
-                SubLine("오늘 모델별  ·  합 \(Fmt.usd(m.total, 0)) (\(Fmt.krw(m.total, rate: s.exchangeRateKRW)))")
-                let maxCost = m.models.first?.cost ?? 1
-                ForEach(m.models) { mc in
-                    HStack(spacing: 8) {
-                        Text(mc.short)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(Color(white: 0.8))
-                            .frame(width: 76, alignment: .leading)
-                        Bar(fraction: mc.cost / max(maxCost, 0.01), color: Color(white: 0.55))
-                            .frame(width: 120, height: 6)
-                        Text("\(Fmt.usd(mc.cost, 1)) (\(Fmt.krw(mc.cost, rate: s.exchangeRateKRW)))  \(Fmt.tok(mc.tokens))")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(Color(white: 0.7))
-                    }
+                SubLine("오늘 합 \(Fmt.usd(m.total, 0)) (\(Fmt.krw(m.total, rate: s.exchangeRateKRW)))")
+                ForEach(m.models.prefix(4)) { mc in
+                    SubLine("  \(mc.short)  \(Fmt.usd(mc.cost, 1))  \(Fmt.tok(mc.tokens))")
                 }
             }
             let usd = s.claudeModels?.total ?? s.claudeBlock?.cost ?? 0
-            if usd > 0 {
-                SpentLine(name: "Claude", usd: usd, rate: s.exchangeRateKRW)
+            if usd > 0 { SpentLine(name: "Claude", usd: usd, rate: s.exchangeRateKRW) }
+        }
+    }
+
+    // MARK: Codex
+
+    @ViewBuilder
+    private func codexColumn(_ s: UsageSnapshot) -> some View {
+        let cx = s.codex
+        let rings: [RingSpec] = {
+            guard let cx else { return [] }
+            var r: [RingSpec] = []
+            if let w = cx.fiveHour { r.append(.init(id: "5h", label: "5시간", window: w)) }
+            if let w = cx.weekly { r.append(.init(id: "wk", label: "주간", window: w)) }
+            return r
+        }()
+        UsageColumn(
+            title: "Codex", live: cx?.live, measuredAt: cx?.measuredAt,
+            source: "ChatGPT wham/usage", rings: rings, now: now
+        ) {
+            if let plan = cx?.planType {
+                SubLine("plan \(plan)\(cx?.creditsBalance.map { "  ·  credits \($0)" } ?? "")")
             }
         }
     }
@@ -90,31 +99,25 @@ struct ExpandedBody: View {
     // MARK: Cursor
 
     @ViewBuilder
-    private func cursorSection(_ cu: CursorUsage, rate: Double) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "Cursor AI", live: cu.live, measuredAt: cu.measuredAt, source: "Cursor API", now: now)
-            let autoUsed = cu.autoPercentUsed ?? cu.usedPct
-            GaugeRow(label: "Cursor Models", window: UsageWindow(pct: autoUsed, resetsAt: cu.cycleEnd), now: now)
+    private func cursorColumn(_ s: UsageSnapshot) -> some View {
+        let cu = s.cursor
+        let rings: [RingSpec] = {
+            guard let cu else { return [] }
+            var r: [RingSpec] = [
+                .init(id: "models", label: "Models", window: UsageWindow(pct: cu.autoPercentUsed ?? cu.usedPct, resetsAt: cu.cycleEnd))
+            ]
             if let api = cu.apiPercentUsed {
-                GaugeRow(label: "Other Models", window: UsageWindow(pct: api, resetsAt: cu.cycleEnd), now: now)
+                r.append(.init(id: "other", label: "Other", window: UsageWindow(pct: api, resetsAt: cu.cycleEnd)))
             }
-            if let msg = cu.displayMsg { SubLine(msg) }
-            if let cents = cu.totalSpendCents, cents > 0 {
-                SpentLine(name: "Cursor", usd: cents / 100, rate: rate)
-            }
-        }
-    }
-
-    // MARK: Codex
-
-    @ViewBuilder
-    private func codexSection(_ cx: CodexUsage) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title: "Codex (ChatGPT)", live: cx.live, measuredAt: cx.measuredAt, source: "ChatGPT wham/usage", now: now)
-            if let w = cx.fiveHour { GaugeRow(label: "5시간", window: w, now: now) }
-            if let w = cx.weekly { GaugeRow(label: "주간", window: w, now: now) }
-            if let plan = cx.planType {
-                SubLine("plan \(plan)\(cx.creditsBalance.map { "  ·  credits \($0)" } ?? "")")
+            return r
+        }()
+        UsageColumn(
+            title: "Cursor", live: cu?.live, measuredAt: cu?.measuredAt,
+            source: "Cursor API", rings: rings, now: now
+        ) {
+            if let msg = cu?.displayMsg { SubLine(msg) }
+            if let cents = cu?.totalSpendCents, cents > 0 {
+                SpentLine(name: "Cursor", usd: cents / 100, rate: s.exchangeRateKRW)
             }
         }
     }
@@ -195,72 +198,128 @@ struct ExpandedBody: View {
 
 // MARK: - 부품
 
-struct SectionHeader: View {
+/// 도넛 링 하나의 데이터
+struct RingSpec: Identifiable {
+    let id: String
+    let label: String
+    let window: UsageWindow
+    var remain: Double { window.remain }
+}
+
+/// 한 열: 제목 · 상태 · 겹친 링 · 범례 · 부가 정보
+struct UsageColumn<Extra: View>: View {
     let title: String
     let live: Bool?
     let measuredAt: Int?
     let source: String
+    let rings: [RingSpec]
     let now: Int
+    @ViewBuilder let extra: () -> Extra
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Color(white: 0.85))
-            if let live {
-                if live {
-                    Text("라이브 · \(source)").font(.system(size: 10)).foregroundStyle(.gray)
-                } else if let m = measuredAt {
-                    Text("측정 \(Fmt.dur(now - m)) 전 · 캐시 폴백")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Color(red: 0.82, green: 0.6, blue: 0.13))
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(white: rings.isEmpty ? 0.45 : 0.85))
+                statusLine
+            }
+            RingStack(rings: rings)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+            if rings.isEmpty {
+                Text("로그인 후 표시")
+                    .font(.system(size: 11)).foregroundStyle(.gray)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(rings) { r in LegendRow(ring: r, now: now) }
                 }
             }
+            extra()
+        }
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        if let live {
+            if live {
+                Text("라이브 · \(source)").font(.system(size: 10)).foregroundStyle(.gray)
+            } else if let m = measuredAt {
+                Text("측정 \(Fmt.dur(now - m)) 전 · 캐시 폴백")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Color(red: 0.82, green: 0.6, blue: 0.13))
+            }
+        } else {
+            Text(source).font(.system(size: 10)).foregroundStyle(Color(white: 0.35))
         }
     }
 }
 
-/// 라벨 · 잔량 바 · 남은% · 사용% · 리셋
-struct GaugeRow: View {
-    let label: String
-    let window: UsageWindow
+/// 겹친 도넛 링. rings[0] 이 가장 바깥, 가운데엔 바깥 링 잔량
+struct RingStack: View {
+    let rings: [RingSpec]
+    var size: CGFloat = 128
+    var lineWidth: CGFloat = 9
+    var gap: CGFloat = 3
+
+    var body: some View {
+        ZStack {
+            // 데이터 없으면 빈 트랙 3겹
+            let n = max(rings.count, rings.isEmpty ? 3 : 0)
+            ForEach(0..<n, id: \.self) { i in
+                let inset = CGFloat(i) * (lineWidth + gap) + lineWidth / 2
+                Circle()
+                    .stroke(Color(white: 0.16), lineWidth: lineWidth)
+                    .padding(inset)
+                if i < rings.count {
+                    let r = rings[i]
+                    Circle()
+                        .trim(from: 0, to: max(0.003, r.remain / 100))
+                        .stroke(heatColor(r.remain), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .padding(inset)
+                        .animation(.easeOut(duration: 0.4), value: r.remain)
+                }
+            }
+            if let outer = rings.first {
+                VStack(spacing: 0) {
+                    Text("\(Int(outer.remain.rounded()))%")
+                        .font(.system(size: 15, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(heatColor(outer.remain))
+                    Text(outer.label)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.gray)
+                        .lineLimit(1)
+                }
+            } else {
+                Text("—").font(.system(size: 15, weight: .bold)).foregroundStyle(Color(white: 0.3))
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// 범례 한 줄: 색점 · 라벨 · 남은% · 리셋
+struct LegendRow: View {
+    let ring: RingSpec
     let now: Int
 
     var body: some View {
-        let r = window.remain
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 12))
+        HStack(spacing: 6) {
+            Circle().fill(heatColor(ring.remain)).frame(width: 7, height: 7)
+            Text(ring.label)
+                .font(.system(size: 11))
                 .foregroundStyle(Color(white: 0.8))
-                .frame(width: 96, alignment: .leading)
                 .lineLimit(1)
-            Bar(fraction: r / 100, color: heatColor(r))
-                .frame(height: 8)
-            Text("\(Int(r.rounded()))%")
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(heatColor(r))
-                .frame(width: 40, alignment: .trailing)
-            Text("사용 \(Int(window.pct.rounded()))%")
-                .font(.system(size: 11, design: .monospaced))
+                .frame(width: 52, alignment: .leading)
+            Text("\(Int(ring.remain.rounded()))%")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(heatColor(ring.remain))
+                .frame(width: 36, alignment: .trailing)
+            Text(Fmt.reset(ring.window.resetsAt, now: now) ?? "")
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.gray)
-                .frame(width: 62, alignment: .leading)
-            Text(Fmt.reset(window.resetsAt, now: now) ?? "")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.gray)
-                .frame(width: 92, alignment: .leading)
-        }
-    }
-}
-
-struct Bar: View {
-    let fraction: Double
-    let color: Color
-
-    var body: some View {
-        GeometryReader { p in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color(white: 0.18))
-                Capsule().fill(color)
-                    .frame(width: max(0, min(1, fraction)) * p.size.width)
-            }
+                .lineLimit(1)
         }
     }
 }
@@ -281,9 +340,10 @@ struct SpentLine: View {
     let usd: Double
     let rate: Double
     var body: some View {
-        Text("💳 지금까지 \(name) 약 \(Fmt.krw(usd, rate: rate))(\(Fmt.usd(usd)))을 사용하셨습니다!")
-            .font(.system(size: 12, design: .monospaced))
+        Text("💳 \(name) 누적 \(Fmt.krw(usd, rate: rate)) (\(Fmt.usd(usd)))")
+            .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(Color(red: 0.19, green: 0.82, blue: 0.35))
+            .lineLimit(1)
     }
 }
 

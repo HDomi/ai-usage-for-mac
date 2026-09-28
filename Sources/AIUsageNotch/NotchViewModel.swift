@@ -63,7 +63,7 @@ final class NotchViewModel: ObservableObject {
     /// 날개와 이웃(앱 메뉴·상태 아이콘) 사이 최소 간격
     static let edgeMargin: CGFloat = 8
     nonisolated static let virtualNotchWidth: CGFloat = 16
-    static let expandedMinWidth: CGFloat = 640
+    static let expandedMinWidth: CGFloat = 720
     static let expandedMaxBody: CGFloat = 560
     /// AIU_ANIM=초 로 늘려서 애니메이션 프레임 확인 가능 (디버그용)
     static let animDuration: Double = ProcessInfo.processInfo.environment["AIU_ANIM"].flatMap(Double.init) ?? 0.15
