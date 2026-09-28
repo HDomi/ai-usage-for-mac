@@ -75,8 +75,8 @@ enum MenuBarProbe {
               let items: [AXUIElement] = attr(bar, kAXChildrenAttribute) else { return nil }
         var minX = CGFloat.infinity, maxX = -CGFloat.infinity, y: CGFloat = 0
         for item in items {
-            guard let p = axValue(item, kAXPositionAttribute, .cgPoint, CGPoint.zero),
-                  let s = axValue(item, kAXSizeAttribute, .cgSize, CGSize.zero), s.width > 0
+            guard let p = axPoint(item, kAXPositionAttribute),
+                  let s = axSize(item, kAXSizeAttribute), s.width > 0
             else { continue }
             minX = min(minX, p.x)
             maxX = max(maxX, p.x + s.width)
@@ -94,9 +94,15 @@ enum MenuBarProbe {
         return v as? T
     }
 
-    private static func axValue<T>(_ el: AXUIElement, _ name: String, _ type: AXValueType, _ zero: T) -> T? {
+    private static func axPoint(_ el: AXUIElement, _ name: String) -> CGPoint? {
         guard let v: AXValue = attr(el, name) else { return nil }
-        var out = zero
-        return AXValueGetValue(v, type, &out) ? out : nil
+        var out = CGPoint.zero
+        return AXValueGetValue(v, .cgPoint, &out) ? out : nil
+    }
+
+    private static func axSize(_ el: AXUIElement, _ name: String) -> CGSize? {
+        guard let v: AXValue = attr(el, name) else { return nil }
+        var out = CGSize.zero
+        return AXValueGetValue(v, .cgSize, &out) ? out : nil
     }
 }
