@@ -44,15 +44,17 @@ final class NotchController {
         layout()
         panel.orderFrontRegardless()
 
-        // 확장/축소, 배터리 개수, 화면 변경, 본문 높이 → 창 크기 재계산
+        // 배터리 개수, 화면 변경, 본문 높이, 메뉴바 점유 → 창 크기 재계산
         // @Published 는 willSet 시점에 emit 하므로 다음 런루프에서 읽는다
-        vm.$isExpanded.dropFirst().receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
+        // 펼침/접힘은 vm.setExpanded 가 onLayout 으로 동기 호출한다
+        vm.onLayout = { [weak self] in self?.layout() }
         vm.$snapshot.dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
         vm.$geometry.dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
-        vm.$bodyHeight.dropFirst().removeDuplicates().receive(on: DispatchQueue.main)
+        // 본문 높이 측정 → 창 줄이기는 reveal 애니메이션이 끝난 뒤 (같이 하면 루트 크기 변화가 애니메이션에 섞임)
+        vm.$bodyHeight.dropFirst().removeDuplicates()
+            .delay(for: .seconds(NotchViewModel.animDuration + 0.05), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
         vm.$occupancy.dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
@@ -74,11 +76,12 @@ final class NotchController {
 
     /// 창 프레임을 상태에 맞춰 잡는다. 접힘: 노치 폭 + 좌우 날개(비대칭 가능), 펼침: 본문 높이만큼.
     /// 펼친 직후 본문 높이를 모르므로 최대 높이로 열고, 측정되면 줄인다.
+    /// 창 크기는 애니메이션하지 않는다. 남는 영역은 투명이고, 보이는 높이는 뷰가 애니메이션한다.
     func layout() {
         let g = vm.geometry
         let width = vm.currentWidth
         let body: CGFloat
-        if vm.isExpanded {
+        if vm.bodyVisible {
             body = vm.bodyHeight > 0 ? min(vm.bodyHeight, NotchViewModel.expandedMaxBody)
                                      : NotchViewModel.expandedMaxBody
         } else {
@@ -93,7 +96,7 @@ final class NotchController {
         }
         if ProcessInfo.processInfo.environment["AIU_DEBUG"] != nil {
             FileHandle.standardError.write(
-                "[\(Int(Date().timeIntervalSince1970) % 1000)][layout] expanded=\(vm.isExpanded) frame=\(frame) notch=\(g.notchWidth)x\(g.notchHeight) hasNotch=\(g.hasNotch) screen=\(g.screenFrame) visible=\(panel.isVisible) bodyH=\(vm.bodyHeight) items=\(vm.leftLayout.items.count)/\(vm.rightLayout.items.count) wings=\(vm.wingLeft)/\(vm.wingRight) occ=\(vm.occupancy)\n".data(using: .utf8)!
+                "[\(Int(Date().timeIntervalSince1970) % 1000)][layout] expanded=\(vm.isExpanded) body=\(vm.bodyVisible) frame=\(frame) notch=\(g.notchWidth)x\(g.notchHeight) hasNotch=\(g.hasNotch) screen=\(g.screenFrame) visible=\(panel.isVisible) bodyH=\(vm.bodyHeight) items=\(vm.leftLayout.items.count)/\(vm.rightLayout.items.count) wings=\(vm.wingLeft)/\(vm.wingRight) occ=\(vm.occupancy)\n".data(using: .utf8)!
             )
         }
         if !panel.isVisible { panel.orderFrontRegardless() }

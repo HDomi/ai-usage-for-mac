@@ -1,12 +1,24 @@
 import SwiftUI
 
-/// 검은 노치 영역 + 펼친 본문
+/// 검은 노치 영역 + 펼친 본문.
+/// 헤더+본문은 항상 전체 크기로 위에 붙여 두고, 보이는 높이(reveal)만 애니메이션한다.
+/// VStack 자체 크기를 애니메이션하면 중간 프레임에서 헤더가 아래로 밀린다.
 struct NotchView: View {
     @ObservedObject var vm: NotchViewModel
+    @State private var reveal: CGFloat = 0
+    @State private var radius: CGFloat = 12
+
+    /// 목표 높이. 본문 높이를 아직 모르면 헤더 높이 유지 (측정되면 갱신)
+    private var targetHeight: CGFloat {
+        let g = vm.geometry
+        guard vm.isExpanded, vm.bodyHeight > 0 else { return g.notchHeight }
+        return g.notchHeight + min(vm.bodyHeight, NotchViewModel.expandedMaxBody)
+    }
 
     var body: some View {
         let g = vm.geometry
         let w = vm.currentWidth
+        let shape = UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius)
         ZStack(alignment: .top) {
             // 투명 영역(본문 측정 전 여유분) 클릭 → 접기
             Color.clear
@@ -16,9 +28,10 @@ struct NotchView: View {
             VStack(spacing: 0) {
                 header
                     .frame(width: w, height: g.notchHeight)
-                if vm.isExpanded {
+                if vm.bodyVisible {
                     ExpandedBody(vm: vm)
                         .frame(width: w)
+                        .fixedSize(horizontal: false, vertical: true)
                         .background(
                             // 본문 실제 높이를 창 크기에 반영 (preference 는 background 안에서 전달이 불안정해 onChange 사용)
                             GeometryReader { p in
@@ -27,19 +40,19 @@ struct NotchView: View {
                                     .onChange(of: p.size.height) { _, h in vm.bodyHeight = ceil(h) }
                             }
                         )
-                        .transition(.opacity)
                 }
             }
-            .background(
-                UnevenRoundedRectangle(
-                    bottomLeadingRadius: vm.isExpanded ? 20 : 12,
-                    bottomTrailingRadius: vm.isExpanded ? 20 : 12
-                )
-                .fill(.black)
-            )
+            .frame(width: w, height: reveal > 0 ? reveal : g.notchHeight, alignment: .top)
+            .background(shape.fill(.black))
+            .clipShape(shape)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(.easeOut(duration: 0.15), value: vm.isExpanded)
+        .onChange(of: targetHeight, initial: true) { _, t in
+            withAnimation(.easeOut(duration: NotchViewModel.animDuration)) {
+                reveal = t
+                radius = vm.isExpanded ? 20 : 12
+            }
+        }
         .preferredColorScheme(.dark)
     }
 

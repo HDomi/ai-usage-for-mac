@@ -112,7 +112,8 @@ cd ai-usage-for-mac
 ```bash
 swift build                      # 디버그 빌드
 AIU_DEBUG=1 .build/debug/AIUsageNotch          # 창 프레임·메뉴바 점유 폭 로그 stderr
-AIU_DEBUG=1 AIU_DEBUG_EXPAND=1 .build/debug/AIUsageNotch   # 4초 뒤 자동 펼침 (레이아웃 확인용)
+AIU_DEBUG=1 AIU_DEBUG_EXPAND=1 .build/debug/AIUsageNotch   # 4초 뒤 자동 펼침, 6초 뒤 접힘 (레이아웃 확인용)
+AIU_ANIM=1.0 .build/debug/AIUsageNotch                     # 펼침 애니메이션을 1초로 늘림 (프레임 확인용)
 node core/usage-core.js | jq     # 코어 단독 실행
 ./scripts/build-app.sh           # build/AI Usage.app 생성
 ./scripts/uninstall.sh           # 제거

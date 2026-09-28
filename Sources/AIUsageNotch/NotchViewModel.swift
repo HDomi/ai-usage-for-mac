@@ -65,10 +65,15 @@ final class NotchViewModel: ObservableObject {
     nonisolated static let virtualNotchWidth: CGFloat = 16
     static let expandedMinWidth: CGFloat = 640
     static let expandedMaxBody: CGFloat = 560
+    /// AIU_ANIM=초 로 늘려서 애니메이션 프레임 확인 가능 (디버그용)
+    static let animDuration: Double = ProcessInfo.processInfo.environment["AIU_ANIM"].flatMap(Double.init) ?? 0.15
 
     @Published var geometry = NotchGeometry.detect()
     @Published var snapshot: UsageSnapshot?
+    /// 논리 상태. 펼침 애니메이션 목표
     @Published var isExpanded = false
+    /// 본문이 렌더돼 있고 창이 펼침 크기인 상태. 접을 땐 애니메이션이 끝난 뒤 false
+    @Published var bodyVisible = false
     @Published var isFetching = false
     @Published var fetchError: String?
     @Published var lastFetchAt: Date?
@@ -78,6 +83,10 @@ final class NotchViewModel: ObservableObject {
     @Published var bodyHeight: CGFloat = 0
     @Published var occupancy = MenuBarOccupancy.unknown
     @Published var axTrusted = AXIsProcessTrusted()
+
+    /// 창 프레임 재계산 (NotchController 가 연결). 펼칠 땐 SwiftUI 렌더 전에 동기로 불러야
+    /// 창 크기 변화가 reveal 애니메이션과 같은 트랜잭션에 섞이지 않는다
+    var onLayout: (() -> Void)?
 
     let core = UsageCore()
     let updater = Updater()
@@ -152,11 +161,11 @@ final class NotchViewModel: ObservableObject {
     var expandedWidth: CGFloat {
         max(Self.expandedMinWidth, notchSpan + 2 * max(wingLeft, wingRight))
     }
-    var currentWidth: CGFloat { isExpanded ? expandedWidth : collapsedWidth }
+    var currentWidth: CGFloat { bodyVisible ? expandedWidth : collapsedWidth }
 
     /// 창 왼쪽 x. 접힘: 노치 왼쪽 끝에서 왼쪽 날개만큼. 펼침: 노치 중심 기준 대칭
     var panelX: CGFloat {
-        isExpanded ? geometry.notchMidX - expandedWidth / 2 : geometry.notchMinX - wingLeft
+        bodyVisible ? geometry.notchMidX - expandedWidth / 2 : geometry.notchMinX - wingLeft
     }
     /// 헤더 안에서 노치 자리가 시작하는 오프셋
     var headerLeftWidth: CGFloat { geometry.notchMinX - panelX }
@@ -170,7 +179,8 @@ final class NotchViewModel: ObservableObject {
     func start() {
         dbg("start")
         if ProcessInfo.processInfo.environment["AIU_DEBUG_EXPAND"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.dbg("auto-expand fire"); self.isExpanded = true; self.dbg("auto-expand set") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.dbg("auto-expand fire"); self.setExpanded(true) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { self.dbg("auto-collapse fire"); self.setExpanded(false) }
         }
         refreshLoginState()
         dbg("login state ok")
@@ -255,8 +265,25 @@ final class NotchViewModel: ObservableObject {
         )
     }
 
-    func toggle() { isExpanded.toggle() }
-    func collapse() { if isExpanded { isExpanded = false } }
+    func toggle() { setExpanded(!isExpanded) }
+    func collapse() { setExpanded(false) }
+
+    /// 펼침: 창을 먼저 키우고 본문을 그린 뒤 뷰가 높이를 애니메이션.
+    /// 접힘: 뷰가 높이를 줄이는 동안 본문을 유지하고, 끝나면 창을 줄인다.
+    func setExpanded(_ on: Bool) {
+        guard isExpanded != on else { return }
+        isExpanded = on
+        if on {
+            bodyVisible = true
+            onLayout?()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.animDuration + 0.03) { [weak self] in
+                guard let self, !self.isExpanded else { return }
+                self.bodyVisible = false
+                self.onLayout?()
+            }
+        }
+    }
 
     func refresh() {
         guard !isFetching else { return }
