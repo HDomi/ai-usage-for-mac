@@ -55,9 +55,18 @@ struct ExpandedBody: View {
             }
             return []
         }()
+        let spend: SpendInfo? = {
+            guard let c = s.claude, let w = c.weekly,
+                  let plan = PlanPricing.claude(subscriptionType: c.subscriptionType, rateLimitTier: c.rateLimitTier)
+            else { return nil }
+            return SpendInfo(
+                usd: PlanPricing.weeklySpend(plan, weeklyPct: w.pct), period: "이번 주",
+                basis: "\(plan.name) \(Fmt.usd(plan.monthlyUSD, 0))/월 × 주간 \(Int(w.pct.rounded()))%", estimated: true
+            )
+        }()
         UsageColumn(
             title: "Claude", live: s.claude?.live, measuredAt: s.claude?.measuredAt,
-            source: "Anthropic usage API", rings: rings, now: now
+            source: "Anthropic usage API", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
         ) {
             if let b = s.claudeBlock {
                 SubLine("블록 \(Fmt.usd(b.cost)) (\(Fmt.krw(b.cost, rate: s.exchangeRateKRW)))")
@@ -86,9 +95,16 @@ struct ExpandedBody: View {
             if let w = cx.weekly { r.append(.init(id: "wk", label: "주간", window: w)) }
             return r
         }()
+        let spend: SpendInfo? = {
+            guard let cx, let w = cx.weekly, let plan = PlanPricing.codex(planType: cx.planType) else { return nil }
+            return SpendInfo(
+                usd: PlanPricing.weeklySpend(plan, weeklyPct: w.pct), period: "이번 주",
+                basis: "\(plan.name) \(Fmt.usd(plan.monthlyUSD, 0))/월 × 주간 \(Int(w.pct.rounded()))%", estimated: true
+            )
+        }()
         UsageColumn(
             title: "Codex", live: cx?.live, measuredAt: cx?.measuredAt,
-            source: "ChatGPT wham/usage", rings: rings, now: now
+            source: "ChatGPT wham/usage", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
         ) {
             if let plan = cx?.planType {
                 SubLine("plan \(plan)\(cx?.creditsBalance.map { "  ·  credits \($0)" } ?? "")")
@@ -111,14 +127,16 @@ struct ExpandedBody: View {
             }
             return r
         }()
+        let spend: SpendInfo? = {
+            guard let cu, let cents = cu.totalSpendCents else { return nil }
+            let limit = cu.limitCents.map { "한도 \(Fmt.usd($0 / 100, 0)) · " } ?? ""
+            return SpendInfo(usd: cents / 100, period: "이번 달", basis: "\(limit)Cursor 청구 기준", estimated: false)
+        }()
         UsageColumn(
             title: "Cursor", live: cu?.live, measuredAt: cu?.measuredAt,
-            source: "Cursor API", rings: rings, now: now
+            source: "Cursor API", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
         ) {
             if let msg = cu?.displayMsg { SubLine(msg) }
-            if let cents = cu?.totalSpendCents, cents > 0 {
-                SpentLine(name: "Cursor", usd: cents / 100, rate: s.exchangeRateKRW)
-            }
         }
     }
 
@@ -213,6 +231,8 @@ struct UsageColumn<Extra: View>: View {
     let measuredAt: Int?
     let source: String
     let rings: [RingSpec]
+    let spend: SpendInfo?
+    let rate: Double
     let now: Int
     @ViewBuilder let extra: () -> Extra
 
@@ -227,6 +247,9 @@ struct UsageColumn<Extra: View>: View {
             RingStack(rings: rings)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)
+            if let spend {
+                SpendBlock(spend: spend, rate: rate)
+            }
             if rings.isEmpty {
                 Text("로그인 후 표시")
                     .font(.system(size: 11)).foregroundStyle(.gray)
@@ -296,6 +319,30 @@ struct RingStack: View {
             }
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// 도넛 아래 사용액: 달러 · 환율 적용 원화 · 산출 근거
+struct SpendBlock: View {
+    let spend: SpendInfo
+    let rate: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                Text("💵 \(spend.period)\(spend.estimated ? " 약" : "")")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color(white: 0.8))
+                Text("\(Fmt.usd(spend.usd, spend.usd < 10 ? 2 : 1))  ·  \(Fmt.krw(spend.usd, rate: rate))")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color(red: 0.19, green: 0.82, blue: 0.35))
+            }
+            Text("\(spend.basis) · ₩\(Int(rate.rounded()))/$")
+                .font(.system(size: 9))
+                .foregroundStyle(.gray)
+                .lineLimit(1)
+        }
+        .padding(.bottom, 2)
     }
 }
 

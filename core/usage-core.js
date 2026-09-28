@@ -15,7 +15,7 @@ import {
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 
-const CORE_VERSION = "1.0.0";
+const CORE_VERSION = "1.1.0";
 const HOME = homedir();
 const now = Math.floor(Date.now() / 1000);
 
@@ -242,21 +242,42 @@ function getClaudeModels() {
 
 const CLAUDE_USAGE_CACHE = `${STATE_DIR}/.claude-usage.json`;
 
-function readClaudeToken() {
-  if (existsSync(`${STATE_DIR}/.no-live`)) return null;
+const CLAUDE_PLAN_CACHE = `${STATE_DIR}/.claude-plan.json`;
+
+/** Keychain 또는 ~/.claude/.credentials.json 의 claudeAiOauth 객체 */
+function readClaudeOauth() {
   try {
     const raw = execSync(
       'security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null',
       { encoding: "utf8", timeout: 3000, stdio: ["ignore", "pipe", "ignore"] },
     ).trim();
-    const t = JSON.parse(raw)?.claudeAiOauth?.accessToken;
-    if (t) return t;
+    const o = JSON.parse(raw)?.claudeAiOauth;
+    if (o?.accessToken) return o;
   } catch {}
   try {
     const raw = readFileSync(`${HOME}/.claude/.credentials.json`, "utf8");
-    return JSON.parse(raw)?.claudeAiOauth?.accessToken ?? null;
+    return JSON.parse(raw)?.claudeAiOauth ?? null;
   } catch {}
   return null;
+}
+
+function readClaudeToken() {
+  if (existsSync(`${STATE_DIR}/.no-live`)) return null;
+  return readClaudeOauth()?.accessToken ?? null;
+}
+
+/** 구독 등급 (subscriptionType, rateLimitTier). 요금 환산용. 토큰 없을 땐 캐시 */
+function getClaudePlan() {
+  const o = readClaudeOauth();
+  if (o) {
+    const plan = {
+      subscriptionType: o.subscriptionType ?? null,
+      rateLimitTier: o.rateLimitTier ?? null,
+    };
+    writeJSON(CLAUDE_PLAN_CACHE, plan);
+    return plan;
+  }
+  return readJSON(CLAUDE_PLAN_CACHE) ?? { subscriptionType: null, rateLimitTier: null };
 }
 
 function fetchClaudeUsageLive() {
@@ -311,6 +332,7 @@ function getClaudeUsage() {
       fiveHour: win(d.five_hour),
       weekly: win(d.seven_day),
       fable,
+      ...getClaudePlan(),
     };
   } catch {
     return null;

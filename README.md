@@ -61,6 +61,23 @@ cd ai-usage-for-mac
 
 `git pull` 이 fast-forward 안 되면(로컬 수정) 실패로 표시되고 로그를 열 수 있습니다.
 
+### 사용액 환산
+
+도넛 아래 "💵 이번 주 약 $x · ₩y" 는 **구독료를 주간 사용률만큼 나눈 추정치**입니다 (월 요금 × 7/30.44 × 주간 사용%). 원화는 코어가 받아온 환율(₩/$)로 환산합니다.
+
+| 서비스 | 근거 |
+|---|---|
+| Claude | Keychain 의 `rateLimitTier` / `subscriptionType` → Pro $20 · Max 5x $100 · Max 20x $200 · Team $30 · Team Premium $150 |
+| Codex | `planType` → Plus $20 · Pro $200 · Team $30 |
+| Cursor | 실제 청구액 (`totalSpendCents`) |
+
+요금이 다르면 덮어쓸 수 있습니다:
+
+```bash
+defaults write com.hdomi.ai-usage-for-mac ClaudePlanUSD -float 100
+defaults write com.hdomi.ai-usage-for-mac CodexPlanUSD -float 20
+```
+
 ### 메뉴바 공간 정책
 
 노치 양옆 날개는 메뉴바에 이미 있는 것(왼쪽 앱 메뉴, 오른쪽 상태 아이콘)과 겹치지 않게 좌우 따로 폭을 정합니다.
