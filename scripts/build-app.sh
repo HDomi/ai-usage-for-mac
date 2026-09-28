@@ -42,5 +42,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 printf 'APPL????' > "$APP/Contents/PkgInfo"
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || echo "ⓘ ad-hoc codesign 실패 (무시 가능)"
+# designated requirement 를 identifier 로 고정: ad-hoc 기본값(cdhash)이면 재빌드마다 접근성 권한이 풀린다
+codesign --force --deep --sign - -r="designated => identifier \"$BUNDLE_ID\"" "$APP" >/dev/null 2>&1 \
+  || echo "ⓘ ad-hoc codesign 실패 (무시 가능)"
 echo "✅ 번들 생성: $APP"

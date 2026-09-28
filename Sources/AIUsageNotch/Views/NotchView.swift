@@ -43,20 +43,23 @@ struct NotchView: View {
         .preferredColorScheme(.dark)
     }
 
-    /// 노치 양옆 날개: 왼쪽 Claude, 오른쪽 Cursor·Codex
+    /// 노치 양옆 날개: 왼쪽 Claude, 오른쪽 Cursor·Codex. 폭은 메뉴바 점유에 맞춰 좌우 따로
     private var header: some View {
-        let wing = (vm.currentWidth - vm.notchSpan) / 2
+        let left = vm.leftLayout
+        let right = vm.rightLayout
+        let leftW = vm.headerLeftWidth
+        let rightW = vm.currentWidth - leftW - vm.notchSpan
         return HStack(spacing: 0) {
             HStack(spacing: NotchViewModel.pillSpacing) {
-                ForEach(vm.leftItems) { BatteryPill(item: $0) }
+                ForEach(left.items) { BatteryPill(item: $0, style: left.style) }
             }
             .padding(.trailing, NotchViewModel.wingPadding)
-            .frame(width: wing, alignment: .trailing)
+            .frame(width: leftW, alignment: .trailing)
 
             Spacer().frame(width: vm.notchSpan)
 
             HStack(spacing: NotchViewModel.pillSpacing) {
-                ForEach(vm.rightItems) { BatteryPill(item: $0) }
+                ForEach(right.items) { BatteryPill(item: $0, style: right.style) }
                 if vm.leftItems.isEmpty && vm.rightItems.isEmpty {
                     Text(vm.isFetching ? "…" : "🔋 —")
                         .font(.system(size: 10, weight: .medium))
@@ -64,7 +67,7 @@ struct NotchView: View {
                 }
             }
             .padding(.leading, NotchViewModel.wingPadding)
-            .frame(width: wing, alignment: .leading)
+            .frame(width: rightW, alignment: .leading)
         }
         .contentShape(Rectangle())
         .onTapGesture { vm.toggle() }
@@ -77,9 +80,10 @@ func heatColor(_ remain: Double) -> Color {
     return Color(hue: 0.33 * r, saturation: 0.85, brightness: 0.95)
 }
 
-/// 노치 옆 미니 배터리: 라벨 + 잔량 바 + 숫자
+/// 노치 옆 미니 배터리: 라벨 + 잔량 바 + 숫자. compact 면 바 없이 라벨 + 숫자
 struct BatteryPill: View {
     let item: BatteryItem
+    var style: PillStyle = .full
 
     var body: some View {
         HStack(spacing: 3) {
@@ -89,19 +93,21 @@ struct BatteryPill: View {
                 .lineLimit(1)
                 .fixedSize()
                 .frame(width: 18, alignment: .trailing)
-            HStack(spacing: 1) {
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .stroke(Color(white: 0.45), lineWidth: 1)
-                        .frame(width: 20, height: 10)
-                    RoundedRectangle(cornerRadius: 1.5)
-                        .fill(heatColor(item.remain))
-                        .frame(width: max(1.5, 17 * item.remain / 100), height: 7)
-                        .padding(.leading, 1.5)
+            if style == .full {
+                HStack(spacing: 1) {
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2.5)
+                            .stroke(Color(white: 0.45), lineWidth: 1)
+                            .frame(width: 20, height: 10)
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(heatColor(item.remain))
+                            .frame(width: max(1.5, 17 * item.remain / 100), height: 7)
+                            .padding(.leading, 1.5)
+                    }
+                    RoundedRectangle(cornerRadius: 0.5)
+                        .fill(Color(white: 0.45))
+                        .frame(width: 1.5, height: 4)
                 }
-                RoundedRectangle(cornerRadius: 0.5)
-                    .fill(Color(white: 0.45))
-                    .frame(width: 1.5, height: 4)
             }
             Text("\(Int(item.remain.rounded()))")
                 .font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit())
@@ -110,6 +116,6 @@ struct BatteryPill: View {
                 .fixedSize()
                 .frame(width: 18, alignment: .leading)
         }
-        .frame(width: NotchViewModel.pillWidth)
+        .frame(width: NotchViewModel.pillWidth(style))
     }
 }

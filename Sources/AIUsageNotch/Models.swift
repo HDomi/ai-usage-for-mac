@@ -87,6 +87,8 @@ struct BatteryItem: Identifiable, Equatable {
     let label: String
     let remain: Double
     let side: Side
+    /// 공간 부족 시 숨김 순서. 작을수록 끝까지 남는다
+    let priority: Int
     var id: String { label }
 }
 
@@ -95,28 +97,28 @@ extension UsageSnapshot {
     var leftItems: [BatteryItem] {
         var items: [BatteryItem] = []
         if let c = claude {
-            if let w = c.fiveHour { items.append(.init(label: "C5", remain: w.remain, side: .left)) }
-            if let w = c.weekly { items.append(.init(label: "CW", remain: w.remain, side: .left)) }
-            if let w = c.fable { items.append(.init(label: "CF", remain: w.remain, side: .left)) }
+            if let w = c.fiveHour { items.append(.init(label: "C5", remain: w.remain, side: .left, priority: 0)) }
+            if let w = c.weekly { items.append(.init(label: "CW", remain: w.remain, side: .left, priority: 1)) }
+            if let w = c.fable { items.append(.init(label: "CF", remain: w.remain, side: .left, priority: 2)) }
         } else if let b = claudeBlock {
-            items.append(.init(label: "C5", remain: max(0, 100 - b.elapsedPct), side: .left))
+            items.append(.init(label: "C5", remain: max(0, 100 - b.elapsedPct), side: .left, priority: 0))
         }
         return items
     }
 
-    /// 노치 오른쪽: Cursor · Codex
+    /// 노치 오른쪽: Cursor · Codex. 숨김 우선순위는 Codex 5시간 > Codex 주간 > Cursor
     var rightItems: [BatteryItem] {
         var items: [BatteryItem] = []
         if let cu = cursor {
             let autoUsed = cu.autoPercentUsed ?? cu.usedPct
-            items.append(.init(label: "Cr", remain: max(0, 100 - autoUsed), side: .right))
+            items.append(.init(label: "Cr", remain: max(0, 100 - autoUsed), side: .right, priority: 2))
             if let api = cu.apiPercentUsed {
-                items.append(.init(label: "Co", remain: max(0, 100 - api), side: .right))
+                items.append(.init(label: "Co", remain: max(0, 100 - api), side: .right, priority: 3))
             }
         }
         if let cx = codex {
-            if let w = cx.fiveHour { items.append(.init(label: "X", remain: w.remain, side: .right)) }
-            if let w = cx.weekly { items.append(.init(label: "XW", remain: w.remain, side: .right)) }
+            if let w = cx.fiveHour { items.append(.init(label: "X", remain: w.remain, side: .right, priority: 0)) }
+            if let w = cx.weekly { items.append(.init(label: "XW", remain: w.remain, side: .right, priority: 1)) }
         }
         return items
     }

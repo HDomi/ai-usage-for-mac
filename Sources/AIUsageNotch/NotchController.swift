@@ -54,6 +54,8 @@ final class NotchController {
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
         vm.$bodyHeight.dropFirst().removeDuplicates().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
+        vm.$occupancy.dropFirst().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
 
         // 패널 밖 클릭 → 접기 (글로벌 모니터는 자기 앱 이벤트를 받지 않음)
         globalMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -70,7 +72,7 @@ final class NotchController {
         vm.start()
     }
 
-    /// 창 프레임을 상태에 맞춰 잡는다. 접힘: 노치 폭 + 날개, 펼침: 본문 높이만큼.
+    /// 창 프레임을 상태에 맞춰 잡는다. 접힘: 노치 폭 + 좌우 날개(비대칭 가능), 펼침: 본문 높이만큼.
     /// 펼친 직후 본문 높이를 모르므로 최대 높이로 열고, 측정되면 줄인다.
     func layout() {
         let g = vm.geometry
@@ -83,7 +85,7 @@ final class NotchController {
             body = 0
         }
         let height = g.notchHeight + body
-        let x = g.screenFrame.midX - width / 2
+        let x = vm.panelX
         let y = g.screenFrame.maxY - height
         let frame = NSRect(x: x, y: y, width: width, height: height).integral
         if panel.frame != frame {
@@ -91,7 +93,7 @@ final class NotchController {
         }
         if ProcessInfo.processInfo.environment["AIU_DEBUG"] != nil {
             FileHandle.standardError.write(
-                "[\(Int(Date().timeIntervalSince1970) % 1000)][layout] expanded=\(vm.isExpanded) frame=\(frame) notch=\(g.notchWidth)x\(g.notchHeight) hasNotch=\(g.hasNotch) screen=\(g.screenFrame) visible=\(panel.isVisible) bodyH=\(vm.bodyHeight) items=\(vm.leftItems.count)/\(vm.rightItems.count)\n".data(using: .utf8)!
+                "[\(Int(Date().timeIntervalSince1970) % 1000)][layout] expanded=\(vm.isExpanded) frame=\(frame) notch=\(g.notchWidth)x\(g.notchHeight) hasNotch=\(g.hasNotch) screen=\(g.screenFrame) visible=\(panel.isVisible) bodyH=\(vm.bodyHeight) items=\(vm.leftLayout.items.count)/\(vm.rightLayout.items.count) wings=\(vm.wingLeft)/\(vm.wingRight) occ=\(vm.occupancy)\n".data(using: .utf8)!
             )
         }
         if !panel.isVisible { panel.orderFrontRegardless() }

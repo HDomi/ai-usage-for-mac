@@ -8,6 +8,11 @@ struct NotchGeometry: Equatable {
     var notchHeight: CGFloat
     var hasNotch: Bool
     var screenFrame: CGRect
+    /// 노치(또는 가상 노치) 왼쪽 끝. 화면 좌표
+    var notchMinX: CGFloat
+
+    var notchMaxX: CGFloat { notchMinX + notchWidth }
+    var notchMidX: CGFloat { notchMinX + notchWidth / 2 }
 
     static func detect() -> NotchGeometry {
         let screens = NSScreen.screens
@@ -16,17 +21,30 @@ struct NotchGeometry: Equatable {
             let w = s.frame.width - l.width - r.width
             return NotchGeometry(
                 notchWidth: w, notchHeight: s.safeAreaInsets.top,
-                hasNotch: true, screenFrame: s.frame
+                hasNotch: true, screenFrame: s.frame,
+                notchMinX: s.frame.minX + l.width
             )
         }
         let s = NSScreen.main ?? screens.first
         let frame = s?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let menuBar = s.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 24
+        let w = NotchViewModel.virtualNotchWidth
         return NotchGeometry(
-            notchWidth: 0, notchHeight: max(24, menuBar),
-            hasNotch: false, screenFrame: frame
+            notchWidth: w, notchHeight: max(24, menuBar),
+            hasNotch: false, screenFrame: frame,
+            notchMinX: frame.midX - w / 2
         )
     }
+}
+
+/// 알약 스타일. compact = 배터리 아이콘 없이 라벨 + 숫자만
+enum PillStyle: Equatable { case full, compact }
+
+/// 한쪽 날개에 실제로 그릴 것
+struct WingLayout: Equatable {
+    var items: [BatteryItem]
+    var style: PillStyle
+    var width: CGFloat
 }
 
 enum UpdateState: Equatable {
@@ -39,9 +57,12 @@ enum UpdateState: Equatable {
 final class NotchViewModel: ObservableObject {
     // 레이아웃 상수
     static let pillWidth: CGFloat = 64
+    static let compactPillWidth: CGFloat = 40
     static let pillSpacing: CGFloat = 4
     static let wingPadding: CGFloat = 10
-    static let virtualNotchWidth: CGFloat = 16
+    /// 날개와 이웃(앱 메뉴·상태 아이콘) 사이 최소 간격
+    static let edgeMargin: CGFloat = 8
+    nonisolated static let virtualNotchWidth: CGFloat = 16
     static let expandedMinWidth: CGFloat = 640
     static let expandedMaxBody: CGFloat = 560
 
@@ -55,6 +76,8 @@ final class NotchViewModel: ObservableObject {
     @Published var updateState: UpdateState = .idle
     @Published var launchAtLogin = false
     @Published var bodyHeight: CGFloat = 0
+    @Published var occupancy = MenuBarOccupancy.unknown
+    @Published var axTrusted = AXIsProcessTrusted()
 
     let core = UsageCore()
     let updater = Updater()
@@ -63,6 +86,8 @@ final class NotchViewModel: ObservableObject {
     private var refreshTimer: Timer?
     private var updateTimer: Timer?
     private var clockTimer: Timer?
+    private var probeTimer: Timer?
+    private var probing = false
     @Published var tick = 0 // 리셋 카운트다운 갱신용
 
     var hasUpdate: Bool {
@@ -73,19 +98,68 @@ final class NotchViewModel: ObservableObject {
     var leftItems: [BatteryItem] { snapshot?.leftItems ?? [] }
     var rightItems: [BatteryItem] { snapshot?.rightItems ?? [] }
 
-    /// 양쪽 날개 폭 (대칭). 배터리 없으면 최소 폭.
-    var wingWidth: CGFloat {
-        let n = max(leftItems.count, rightItems.count, 1)
-        return CGFloat(n) * Self.pillWidth + CGFloat(n - 1) * Self.pillSpacing + Self.wingPadding * 2
+    // MARK: 날개 레이아웃 (메뉴바 점유 폭에 맞춰 좌우 따로)
+
+    static func pillWidth(_ style: PillStyle) -> CGFloat {
+        style == .full ? pillWidth : compactPillWidth
     }
 
-    var notchSpan: CGFloat {
-        geometry.hasNotch ? geometry.notchWidth : Self.virtualNotchWidth
+    static func wingWidth(count n: Int, style: PillStyle) -> CGFloat {
+        guard n > 0 else { return wingPadding * 2 }
+        return CGFloat(n) * pillWidth(style) + CGFloat(n - 1) * pillSpacing + wingPadding * 2
     }
 
-    var collapsedWidth: CGFloat { notchSpan + wingWidth * 2 }
-    var expandedWidth: CGFloat { max(collapsedWidth, Self.expandedMinWidth) }
+    /// 공간 정책: 다 들어가면 full, 아니면 compact, 그래도 넘치면 priority 큰 것부터 숨김.
+    /// available=nil 은 측정 불가 → 제한 없음.
+    static func fit(_ items: [BatteryItem], available: CGFloat?, minWidth: CGFloat = 0) -> WingLayout {
+        let full = wingWidth(count: items.count, style: .full)
+        guard let avail = available, full > avail else {
+            return WingLayout(items: items, style: .full, width: max(full, minWidth))
+        }
+        var kept = items
+        while !kept.isEmpty, wingWidth(count: kept.count, style: .compact) > avail {
+            if let drop = kept.indices.max(by: { kept[$0].priority < kept[$1].priority }) {
+                kept.remove(at: drop) // 표시 순서는 유지
+            }
+        }
+        return WingLayout(items: kept, style: .compact,
+                          width: max(wingWidth(count: kept.count, style: .compact), minWidth))
+    }
+
+    /// 노치 왼쪽에 남은 폭. nil = 앱 메뉴 폭을 모름(접근성 권한 없음)
+    var leftAvailable: CGFloat? {
+        occupancy.left.map { (geometry.notchMinX - geometry.screenFrame.minX) - $0 - Self.edgeMargin }
+    }
+
+    var rightAvailable: CGFloat {
+        (geometry.screenFrame.maxX - geometry.notchMaxX) - occupancy.right - Self.edgeMargin
+    }
+
+    var leftLayout: WingLayout { Self.fit(leftItems, available: leftAvailable) }
+
+    var rightLayout: WingLayout {
+        // 둘 다 비면 오른쪽에 자리표시자를 그리므로 알약 하나 폭은 확보
+        let minW = leftItems.isEmpty && rightItems.isEmpty ? Self.pillWidth + Self.wingPadding * 2 : 0
+        return Self.fit(rightItems, available: rightAvailable, minWidth: minW)
+    }
+
+    var wingLeft: CGFloat { leftLayout.width }
+    var wingRight: CGFloat { rightLayout.width }
+    var notchSpan: CGFloat { geometry.notchWidth }
+
+    var collapsedWidth: CGFloat { wingLeft + notchSpan + wingRight }
+    /// 펼침은 노치 중심 대칭. 접힘 날개가 잘리지 않을 만큼은 넓힌다
+    var expandedWidth: CGFloat {
+        max(Self.expandedMinWidth, notchSpan + 2 * max(wingLeft, wingRight))
+    }
     var currentWidth: CGFloat { isExpanded ? expandedWidth : collapsedWidth }
+
+    /// 창 왼쪽 x. 접힘: 노치 왼쪽 끝에서 왼쪽 날개만큼. 펼침: 노치 중심 기준 대칭
+    var panelX: CGFloat {
+        isExpanded ? geometry.notchMidX - expandedWidth / 2 : geometry.notchMinX - wingLeft
+    }
+    /// 헤더 안에서 노치 자리가 시작하는 오프셋
+    var headerLeftWidth: CGFloat { geometry.notchMinX - panelX }
 
     func dbg(_ m: String) {
         if ProcessInfo.processInfo.environment["AIU_DEBUG"] != nil {
@@ -100,6 +174,8 @@ final class NotchViewModel: ObservableObject {
         }
         refreshLoginState()
         dbg("login state ok")
+        requestAccessibilityOnce()
+        startProbe()
         refresh()
         checkUpdate()
         dbg("timers")
@@ -115,8 +191,68 @@ final class NotchViewModel: ObservableObject {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.geometry = NotchGeometry.detect() }
+            Task { @MainActor in
+                self?.geometry = NotchGeometry.detect()
+                self?.probe()
+            }
         }
+    }
+
+    // MARK: 메뉴바 점유 폭 측정
+
+    private func startProbe() {
+        probe()
+        probeTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.probe() }
+        }
+        // 앱 전환 직후엔 새 메뉴바가 AX 에 아직 안 올라와 있어 잠깐 뒤에 잰다
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.probe() }
+        }
+    }
+
+    func probe() {
+        guard !probing else { return }
+        probing = true
+        let input = MenuBarProbe.Input(
+            screenFrame: geometry.screenFrame,
+            menuBarHeight: geometry.notchHeight,
+            screens: NSScreen.screens.map(\.frame),
+            frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+            previous: occupancy
+        )
+        Task.detached(priority: .utility) {
+            let o = MenuBarProbe.measure(input)
+            let trusted = AXIsProcessTrusted()
+            await MainActor.run {
+                self.probing = false
+                if self.axTrusted != trusted { self.axTrusted = trusted }
+                if self.occupancy != o {
+                    self.occupancy = o
+                    self.dbg("occupancy L=\(o.left.map { "\(Int($0))" } ?? "?") R=\(Int(o.right)) avail L=\(self.leftAvailable.map { "\(Int($0))" } ?? "?") R=\(Int(self.rightAvailable)) wings=\(Int(self.wingLeft))/\(Int(self.wingRight)) style=\(self.leftLayout.style)/\(self.rightLayout.style)")
+                }
+            }
+        }
+    }
+
+    // MARK: 접근성 권한 (왼쪽 앱 메뉴 폭 측정용)
+
+    private static let axPromptedKey = "AccessibilityPrompted"
+
+    /// 첫 실행에 한 번만 시스템 다이얼로그. 이후엔 패널 버튼으로 설정 창을 연다
+    func requestAccessibilityOnce() {
+        guard !axTrusted, !UserDefaults.standard.bool(forKey: Self.axPromptedKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.axPromptedKey)
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        axTrusted = AXIsProcessTrustedWithOptions(opts)
+    }
+
+    func openAccessibilitySettings() {
+        NSWorkspace.shared.open(
+            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+        )
     }
 
     func toggle() { isExpanded.toggle() }

@@ -161,6 +161,16 @@ struct ExpandedBody: View {
                 }
             }
 
+            if !vm.axTrusted {
+                HStack(spacing: 8) {
+                    Text("⚠︎ 접근성 권한 없음 · 앱 메뉴와 겹치는지 못 재서 왼쪽 날개를 못 줄여")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(red: 0.82, green: 0.6, blue: 0.13))
+                        .lineLimit(1)
+                    PanelButton("권한 설정 열기", tint: Color(white: 0.25)) { vm.openAccessibilitySettings() }
+                }
+            }
+
             HStack(spacing: 10) {
                 Text("v\(vm.version)  ·  AI Usage for Mac")
                     .font(.system(size: 10)).foregroundStyle(.gray)

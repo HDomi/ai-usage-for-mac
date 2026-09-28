@@ -25,6 +25,7 @@
 | Swift 툴체인 | `xcode-select --install` 로 설치되는 Command Line Tools 면 충분 (Xcode 불필요) |
 | Node.js 또는 Bun | 데이터 코어(`core/usage-core.js`) 실행용 |
 | ccusage (선택) | 있으면 Claude 블록 비용·오늘 모델별 비용 표시 |
+| 접근성 권한 (선택) | 앱 메뉴 폭을 읽어 왼쪽 날개가 메뉴를 덮지 않게 줄임. 없으면 왼쪽은 제한 없이 표시 |
 
 ## 설치
 
@@ -60,6 +61,27 @@ cd ai-usage-for-mac
 
 `git pull` 이 fast-forward 안 되면(로컬 수정) 실패로 표시되고 로그를 열 수 있습니다.
 
+### 메뉴바 공간 정책
+
+노치 양옆 날개는 메뉴바에 이미 있는 것(왼쪽 앱 메뉴, 오른쪽 상태 아이콘)과 겹치지 않게 좌우 따로 폭을 정합니다.
+
+```
+[앱 메뉴 ……… 도움말]  8pt  [C5 ▮ 70  CW ▮ 91  CF ▮ 86] ┃노치┃ [X ▮ 0  XW ▮ 84]  8pt  [상태 아이콘 …]
+```
+
+| 남은 공간 | 표시 |
+|---|---|
+| 충분 | 라벨 + 배터리 + 숫자 (64pt/개) |
+| 부족 | 배터리 아이콘 제거, 라벨 + 숫자 (40pt/개) |
+| 그래도 부족 | 우선순위 낮은 것부터 숨김 |
+
+숨김 우선순위 (끝까지 남는 순): Claude `C5` > `CW` > `CF` · Codex `X` > `XW` > Cursor `Cr` > `Co`
+
+- 오른쪽 상태 아이콘은 `CGWindowList` 로 권한 없이 측정
+- 왼쪽 앱 메뉴는 최전방 앱의 `AXMenuBar` 로 측정 → **접근성 권한** 필요. 첫 실행에 한 번 요청하고, 거부하면 패널 하단에 "권한 설정 열기" 버튼
+- 3초마다 + 앱 전환 때 다시 잽니다
+- 앱은 ad-hoc 서명이라 designated requirement 를 번들 ID 로 고정해 재빌드 후에도 권한이 유지됩니다 (`scripts/build-app.sh`)
+
 ---
 
 ## 구조
@@ -67,7 +89,8 @@ cd ai-usage-for-mac
 ```
 ┌───────────────────────────── AI Usage.app (Swift · AppKit + SwiftUI) ─────────────────────────────┐
 │ NotchController  노치 위치 계산(NSScreen.auxiliaryTop*Area) · NSPanel(메뉴바 위 레벨) · 클릭/ESC   │
-│ NotchViewModel   2분 타이머 · 업데이트 체크 · 로그인 항목(SMAppService) · 창 폭/높이 계산          │
+│ NotchViewModel   2분 타이머 · 업데이트 체크 · 로그인 항목(SMAppService) · 날개 폭 정책(full/compact/숨김)│
+│ MenuBarProbe     앱 메뉴 폭(AXMenuBar) · 상태 아이콘 폭(CGWindowList) 측정 → 날개 폭 좌우 따로 조절     │
 │ Views/           NotchView(접힘: 배터리 알약) · ExpandedBody(펼침: 게이지·비용·푸터)               │
 │ UsageCore        node core/usage-core.js 실행 → JSON 디코드                                        │
 │ Updater          GitHub VERSION 조회 · update.sh 실행                                              │
@@ -88,7 +111,7 @@ cd ai-usage-for-mac
 
 ```bash
 swift build                      # 디버그 빌드
-AIU_DEBUG=1 .build/debug/AIUsageNotch          # 창 프레임 로그 stderr
+AIU_DEBUG=1 .build/debug/AIUsageNotch          # 창 프레임·메뉴바 점유 폭 로그 stderr
 AIU_DEBUG=1 AIU_DEBUG_EXPAND=1 .build/debug/AIUsageNotch   # 4초 뒤 자동 펼침 (레이아웃 확인용)
 node core/usage-core.js | jq     # 코어 단독 실행
 ./scripts/build-app.sh           # build/AI Usage.app 생성
