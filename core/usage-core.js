@@ -15,7 +15,7 @@ import {
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 
-const CORE_VERSION = "1.1.0";
+const CORE_VERSION = "1.2.0";
 const HOME = homedir();
 const now = Math.floor(Date.now() / 1000);
 
@@ -119,7 +119,9 @@ function findBin(name, extra = []) {
 }
 
 /**
- * ccusage 실행 커맨드를 결정한다. 없으면 null (비용 상세만 생략).
+ * ccusage 실행 커맨드를 결정한다. 설치돼 있지 않으면 npx 로 실행 (ai-usage-battery 와 동일).
+ * npx 는 PATH 의 node 를 쓰므로 현재 node 디렉터리를 PATH 앞에 붙인다 (앱에서 실행될 땐 PATH 가 최소).
+ * AIU_NO_CCUSAGE=1 이면 null (비용 상세 생략).
  * @returns {string|null}
  */
 function findCCUsage() {
@@ -130,7 +132,10 @@ function findCCUsage() {
     execSync(`${bin} --version 2>/dev/null`, { stdio: "ignore" });
     return bin;
   } catch {}
-  return null;
+  const nodeDir = dirname(process.execPath);
+  const npx = findBin("npx");
+  const npxCmd = npx && existsSync(npx) ? `"${npx}"` : "npx";
+  return `PATH="${nodeDir}:$PATH" ${npxCmd} -y ccusage`;
 }
 const CCUSAGE = findCCUsage();
 

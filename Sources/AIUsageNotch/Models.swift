@@ -127,61 +127,14 @@ extension UsageSnapshot {
     }
 }
 
-// MARK: - 구독 요금 환산
-
-/// 구독 요금표 (USD/월). 사용률 × 요금으로 "이번 주 얼마 썼는지" 를 추정한다.
-/// 정확한 청구액이 아니라 구독료를 사용률만큼 나눈 값. defaults 로 덮어쓸 수 있다:
-///   defaults write com.hdomi.ai-usage-for-mac ClaudePlanUSD -float 100
-///   defaults write com.hdomi.ai-usage-for-mac CodexPlanUSD -float 20
-enum PlanPricing {
-    struct Plan: Equatable {
-        let name: String
-        let monthlyUSD: Double
-    }
-
-    static func claude(subscriptionType: String?, rateLimitTier: String?) -> Plan? {
-        if let v = override("ClaudePlanUSD") { return Plan(name: "설정값", monthlyUSD: v) }
-        let tier = (rateLimitTier ?? "").lowercased()
-        let sub = (subscriptionType ?? "").lowercased()
-        if tier.contains("max_20x") { return Plan(name: "Max 20x", monthlyUSD: 200) }
-        if tier.contains("max_5x") {
-            return sub == "team" ? Plan(name: "Team Premium", monthlyUSD: 150) : Plan(name: "Max 5x", monthlyUSD: 100)
-        }
-        if sub == "team" { return Plan(name: "Team", monthlyUSD: 30) }
-        if sub == "enterprise" { return nil }
-        if sub == "max" { return Plan(name: "Max", monthlyUSD: 100) }
-        if sub == "pro" || tier.contains("pro") { return Plan(name: "Pro", monthlyUSD: 20) }
-        return nil
-    }
-
-    static func codex(planType: String?) -> Plan? {
-        if let v = override("CodexPlanUSD") { return Plan(name: "설정값", monthlyUSD: v) }
-        switch (planType ?? "").lowercased() {
-        case "plus": return Plan(name: "Plus", monthlyUSD: 20)
-        case "pro": return Plan(name: "Pro", monthlyUSD: 200)
-        case "team", "business": return Plan(name: "Team", monthlyUSD: 30)
-        case "free": return Plan(name: "Free", monthlyUSD: 0)
-        default: return nil
-        }
-    }
-
-    /// 월 요금을 7일치로 나눠 주간 사용률만큼
-    static func weeklySpend(_ plan: Plan, weeklyPct: Double) -> Double {
-        plan.monthlyUSD * 7 / 30.44 * max(0, min(100, weeklyPct)) / 100
-    }
-
-    private static func override(_ key: String) -> Double? {
-        let v = UserDefaults.standard.double(forKey: key)
-        return v > 0 ? v : nil
-    }
-}
+// MARK: - 사용액
 
 /// 도넛 아래 표시하는 사용액
 struct SpendInfo {
     var usd: Double
     var period: String   // "이번 주" · "이번 달"
     var basis: String    // 산출 근거 한 줄
-    var estimated: Bool  // true = 구독료 환산, false = 실제 청구
+    var estimated: Bool  // true = ccusage 토큰 비용 환산("약"), false = 실제 청구
 }
 
 // MARK: - 포맷 헬퍼

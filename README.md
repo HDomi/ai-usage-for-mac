@@ -24,7 +24,7 @@
 | macOS 14+ | 노치 없는 Mac/외장 모니터에선 화면 상단 중앙에 가상 노치로 표시 |
 | Swift 툴체인 | `xcode-select --install` 로 설치되는 Command Line Tools 면 충분 (Xcode 불필요) |
 | Node.js 또는 Bun | 데이터 코어(`core/usage-core.js`) 실행용 |
-| ccusage (선택) | 있으면 Claude 블록 비용·오늘 모델별 비용 표시 |
+| ccusage (선택) | Claude 블록 비용·오늘 모델별 비용. 없으면 `npx -y ccusage` 로 자동 실행 |
 | 접근성 권한 (선택) | 앱 메뉴 폭을 읽어 왼쪽 날개가 메뉴를 덮지 않게 줄임. 없으면 왼쪽은 제한 없이 표시 |
 
 ## 설치
@@ -61,22 +61,17 @@ cd ai-usage-for-mac
 
 `git pull` 이 fast-forward 안 되면(로컬 수정) 실패로 표시되고 로그를 열 수 있습니다.
 
-### 사용액 환산
+### 사용액
 
-도넛 아래 "💵 이번 주 약 $x · ₩y" 는 **구독료를 주간 사용률만큼 나눈 추정치**입니다 (월 요금 × 7/30.44 × 주간 사용%). 원화는 코어가 받아온 환율(₩/$)로 환산합니다.
+도넛 아래 "💳 오늘 약 $x · ₩y" 는 [ai-usage-battery](https://github.com/HDomi/ai-usage-battery) 와 같은 기준입니다.
 
 | 서비스 | 근거 |
 |---|---|
-| Claude | Keychain 의 `rateLimitTier` / `subscriptionType` → Pro $20 · Max 5x $100 · Max 20x $200 · Team $30 · Team Premium $150 |
-| Codex | `planType` → Plus $20 · Pro $200 · Team $30 |
+| Claude | `ccusage daily --breakdown` 오늘 모델별 합. 없으면 `ccusage blocks --active` 활성 블록 비용. API 요금 기준 토큰 비용 환산 |
+| Codex | 토큰 비용 출처 없음 → 표시 안 함 |
 | Cursor | 실제 청구액 (`totalSpendCents`) |
 
-요금이 다르면 덮어쓸 수 있습니다:
-
-```bash
-defaults write com.hdomi.ai-usage-for-mac ClaudePlanUSD -float 100
-defaults write com.hdomi.ai-usage-for-mac CodexPlanUSD -float 20
-```
+`ccusage` 가 설치돼 있지 않으면 `npx -y ccusage` 로 실행합니다 (첫 실행은 다운로드로 느릴 수 있음). `AIU_NO_CCUSAGE=1` 로 끌 수 있습니다. 원화는 코어가 받아온 환율(₩/$).
 
 ### 메뉴바 공간 정책
 

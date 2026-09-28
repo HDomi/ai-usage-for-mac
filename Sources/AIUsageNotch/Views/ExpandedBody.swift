@@ -55,31 +55,29 @@ struct ExpandedBody: View {
             }
             return []
         }()
+        // ai-usage-battery 와 같은 기준: ccusage 오늘 모델별 합, 없으면 활성 블록 비용
         let spend: SpendInfo? = {
-            guard let c = s.claude, let w = c.weekly,
-                  let plan = PlanPricing.claude(subscriptionType: c.subscriptionType, rateLimitTier: c.rateLimitTier)
-            else { return nil }
-            return SpendInfo(
-                usd: PlanPricing.weeklySpend(plan, weeklyPct: w.pct), period: "이번 주",
-                basis: "\(plan.name) \(Fmt.usd(plan.monthlyUSD, 0))/월 × 주간 \(Int(w.pct.rounded()))%", estimated: true
-            )
+            let usd = s.claudeModels?.total ?? s.claudeBlock?.cost ?? 0
+            guard usd > 0 else { return nil }
+            var basis = "ccusage 토큰 비용 환산"
+            if let b = s.claudeBlock {
+                basis = "블록 \(Fmt.usd(b.cost))\(b.costPerHour.map { " · \(Fmt.usd($0, 0))/h" } ?? "") · ccusage"
+            }
+            return SpendInfo(usd: usd, period: "오늘", basis: basis, estimated: true)
         }()
         UsageColumn(
             title: "Claude", icon: .claude, live: s.claude?.live, measuredAt: s.claude?.measuredAt,
             source: "Anthropic usage API", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
         ) {
             if let b = s.claudeBlock {
-                SubLine("블록 \(Fmt.usd(b.cost)) (\(Fmt.krw(b.cost, rate: s.exchangeRateKRW)))")
-                SubLine("\(Fmt.tok(b.tokens)) 토큰  ·  \(b.costPerHour.map { Fmt.usd($0, 1) } ?? "?")/h")
+                SubLine("블록 \(Fmt.tok(b.tokens)) 토큰\(b.projCost.map { "  ·  예상 \(Fmt.usd($0, 0))" } ?? "")")
             }
             if let m = s.claudeModels, !m.models.isEmpty {
-                SubLine("오늘 합 \(Fmt.usd(m.total, 0)) (\(Fmt.krw(m.total, rate: s.exchangeRateKRW)))")
+                SubLine("오늘 모델별")
                 ForEach(m.models.prefix(4)) { mc in
-                    SubLine("  \(mc.short)  \(Fmt.usd(mc.cost, 1))  \(Fmt.tok(mc.tokens))")
+                    SubLine("  \(mc.short)  \(Fmt.usd(mc.cost, 1)) (\(Fmt.krw(mc.cost, rate: s.exchangeRateKRW)))")
                 }
             }
-            let usd = s.claudeModels?.total ?? s.claudeBlock?.cost ?? 0
-            if usd > 0 { SpentLine(name: "Claude", usd: usd, rate: s.exchangeRateKRW) }
         }
     }
 
@@ -95,16 +93,10 @@ struct ExpandedBody: View {
             if let w = cx.weekly { r.append(.init(id: "wk", label: "주간", window: w)) }
             return r
         }()
-        let spend: SpendInfo? = {
-            guard let cx, let w = cx.weekly, let plan = PlanPricing.codex(planType: cx.planType) else { return nil }
-            return SpendInfo(
-                usd: PlanPricing.weeklySpend(plan, weeklyPct: w.pct), period: "이번 주",
-                basis: "\(plan.name) \(Fmt.usd(plan.monthlyUSD, 0))/월 × 주간 \(Int(w.pct.rounded()))%", estimated: true
-            )
-        }()
+        // Codex 는 토큰 비용 출처가 없어 사용액 없음
         UsageColumn(
             title: "Codex", icon: .openai, live: cx?.live, measuredAt: cx?.measuredAt,
-            source: "ChatGPT wham/usage", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
+            source: "ChatGPT wham/usage", rings: rings, spend: nil, rate: s.exchangeRateKRW, now: now
         ) {
             if let plan = cx?.planType {
                 SubLine("plan \(plan)\(cx?.creditsBalance.map { "  ·  credits \($0)" } ?? "")")
@@ -334,7 +326,7 @@ struct SpendBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
-                Text("💵 \(spend.period)\(spend.estimated ? " 약" : "")")
+                Text("💳 \(spend.period)\(spend.estimated ? " 약" : "")")
                     .font(.system(size: 11))
                     .foregroundStyle(Color(white: 0.8))
                 Text("\(Fmt.usd(spend.usd, spend.usd < 10 ? 2 : 1))  ·  \(Fmt.krw(spend.usd, rate: rate))")
@@ -382,18 +374,6 @@ struct SubLine: View {
         Text(text)
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.gray)
-            .lineLimit(1)
-    }
-}
-
-struct SpentLine: View {
-    let name: String
-    let usd: Double
-    let rate: Double
-    var body: some View {
-        Text("💳 \(name) 누적 \(Fmt.krw(usd, rate: rate)) (\(Fmt.usd(usd)))")
-            .font(.system(size: 11, design: .monospaced))
-            .foregroundStyle(Color(red: 0.19, green: 0.82, blue: 0.35))
             .lineLimit(1)
     }
 }
