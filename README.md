@@ -3,7 +3,7 @@
 > MacBook **노치(Notch)** 양옆에 **Claude Code · Cursor · Codex** 사용량 한도를 배터리 아이콘으로 상시 표시하는 네이티브 앱입니다.
 > 노치를 클릭하면 아래로 패널이 펼쳐지며 상세 게이지·리셋 시간·비용·업데이트 버튼이 나옵니다.
 
-SwiftBar 없이 동작합니다. [ai-usage-battery](https://github.com/HDomi/ai-usage-battery)(SwiftBar 플러그인)의 데이터 계층을 그대로 가져와 노치 UI 로 다시 만든 프로젝트입니다.
+메뉴바 앱이나 SwiftBar 같은 호스트 없이 단독으로 동작합니다.
 
 ```
         C5 ▮▮▮ 70   CW ▮▮▮ 91   CF ▮▮ 86  ┃ 노치 ┃  Cr ▮▮ 85   X ▮ 0   XW ▮▮▮ 84

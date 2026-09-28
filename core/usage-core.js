@@ -8,7 +8,6 @@ import { execSync } from "node:child_process";
 import {
   readFileSync,
   writeFileSync,
-  statSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -42,7 +41,6 @@ const now = Math.floor(Date.now() / 1000);
 const STATE_DIR =
   process.env.AIU_STATE_DIR ||
   `${HOME}/Library/Application Support/ai-usage-for-mac`;
-const LEGACY_STATE_DIR = `${HOME}/.claude/swiftbar`;
 
 function ensureStateDir() {
   try {
@@ -144,8 +142,7 @@ function getExchangeRateKRW() {
   if (process.env.EXCHANGE_RATE_KRW) {
     return Number(process.env.EXCHANGE_RATE_KRW);
   }
-  const cache =
-    readJSON(EXCHANGE_CACHE) || readJSON(`${LEGACY_STATE_DIR}/.exchange-rate.json`);
+  const cache = readJSON(EXCHANGE_CACHE);
   const age = cache?.fetchedAt ? now - cache.fetchedAt : Infinity;
   if (!cache?.rate || age > 6 * 3600) {
     try {
@@ -244,11 +241,6 @@ function getClaudeModels() {
 }
 
 const CLAUDE_USAGE_CACHE = `${STATE_DIR}/.claude-usage.json`;
-const LEGACY_CLAUDE_CACHES = [
-  `${LEGACY_STATE_DIR}/.claude-usage.json`,
-  `${HOME}/.claude/MEMORY/STATE/usage-cache.json`,
-  `${HOME}/.claude/PAI/MEMORY/STATE/usage-cache.json`,
-];
 
 function readClaudeToken() {
   if (existsSync(`${STATE_DIR}/.no-live`)) return null;
@@ -294,19 +286,6 @@ function readClaudeUsageFallback() {
   const c = readJSON(CLAUDE_USAGE_CACHE);
   if (c?.data?.five_hour)
     return { data: c.data, measuredAt: c.fetchedAt ?? 0, live: false };
-  for (const f of LEGACY_CLAUDE_CACHES) {
-    const d = readJSON(f);
-    if (!d) continue;
-    const data = d.data?.five_hour ? d.data : d.five_hour ? d : null;
-    if (!data) continue;
-    let measuredAt = d.fetchedAt ?? 0;
-    if (!measuredAt) {
-      try {
-        measuredAt = Math.floor(statSync(f).mtimeMs / 1000);
-      } catch {}
-    }
-    return { data, measuredAt, live: false };
-  }
   return null;
 }
 
@@ -460,9 +439,7 @@ function fetchCursorUsageLive() {
 }
 
 function readCursorUsageFallback() {
-  const c =
-    readJSON(CURSOR_USAGE_CACHE) ||
-    readJSON(`${LEGACY_STATE_DIR}/.cursor-usage.json`);
+  const c = readJSON(CURSOR_USAGE_CACHE);
   if (!c || c.subscribed === false) return null;
   if (c.remainPct != null) return { ...c, live: false };
   return null;
@@ -617,9 +594,7 @@ function fetchCodexUsageLive() {
 }
 
 function readCodexUsageFallback() {
-  const c =
-    readJSON(CODEX_USAGE_CACHE) ||
-    readJSON(`${LEGACY_STATE_DIR}/.codex-usage.json`);
+  const c = readJSON(CODEX_USAGE_CACHE);
   if (c?.fiveHour || c?.weekly) return { ...c, live: false };
   return null;
 }
