@@ -65,7 +65,7 @@ struct ExpandedBody: View {
             )
         }()
         UsageColumn(
-            title: "Claude", live: s.claude?.live, measuredAt: s.claude?.measuredAt,
+            title: "Claude", icon: .claude, live: s.claude?.live, measuredAt: s.claude?.measuredAt,
             source: "Anthropic usage API", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
         ) {
             if let b = s.claudeBlock {
@@ -103,7 +103,7 @@ struct ExpandedBody: View {
             )
         }()
         UsageColumn(
-            title: "Codex", live: cx?.live, measuredAt: cx?.measuredAt,
+            title: "Codex", icon: .openai, live: cx?.live, measuredAt: cx?.measuredAt,
             source: "ChatGPT wham/usage", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
         ) {
             if let plan = cx?.planType {
@@ -133,7 +133,7 @@ struct ExpandedBody: View {
             return SpendInfo(usd: cents / 100, period: "이번 달", basis: "\(limit)Cursor 청구 기준", estimated: false)
         }()
         UsageColumn(
-            title: "Cursor", live: cu?.live, measuredAt: cu?.measuredAt,
+            title: "Cursor", icon: .cursor, live: cu?.live, measuredAt: cu?.measuredAt,
             source: "Cursor API", rings: rings, spend: spend, rate: s.exchangeRateKRW, now: now
         ) {
             if let msg = cu?.displayMsg { SubLine(msg) }
@@ -227,6 +227,7 @@ struct RingSpec: Identifiable {
 /// 한 열: 제목 · 상태 · 겹친 링 · 범례 · 부가 정보
 struct UsageColumn<Extra: View>: View {
     let title: String
+    let icon: BrandIcon
     let live: Bool?
     let measuredAt: Int?
     let source: String
@@ -239,9 +240,12 @@ struct UsageColumn<Extra: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(white: rings.isEmpty ? 0.45 : 0.85))
+                HStack(spacing: 6) {
+                    BrandLogo(icon: icon, size: 16, dimmed: rings.isEmpty)
+                    Text(title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(white: rings.isEmpty ? 0.45 : 0.85))
+                }
                 statusLine
             }
             RingStack(rings: rings)

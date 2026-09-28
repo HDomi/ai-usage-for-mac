@@ -93,10 +93,14 @@ func heatColor(_ remain: Double) -> Color {
     return Color(hue: 0.33 * r, saturation: 0.85, brightness: 0.95)
 }
 
-/// 노치 옆 미니 배터리: 라벨 + 잔량 바 + 숫자. compact 면 바 없이 라벨 + 숫자
+/// 노치 옆 미니 배터리: 라벨 + 잔량 바(안에 %). compact 면 바 없이 라벨 + 숫자
 struct BatteryPill: View {
     let item: BatteryItem
     var style: PillStyle = .full
+
+    private static let bodyW: CGFloat = 30
+    private static let bodyH: CGFloat = 14
+    private static let inset: CGFloat = 1.5
 
     var body: some View {
         HStack(spacing: 3) {
@@ -109,25 +113,33 @@ struct BatteryPill: View {
             if style == .full {
                 HStack(spacing: 1) {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2.5)
-                            .stroke(Color(white: 0.45), lineWidth: 1)
-                            .frame(width: 20, height: 10)
-                        RoundedRectangle(cornerRadius: 1.5)
+                        RoundedRectangle(cornerRadius: 3.5)
+                            .stroke(Color(white: 0.5), lineWidth: 1)
+                            .frame(width: Self.bodyW, height: Self.bodyH)
+                        RoundedRectangle(cornerRadius: 2)
                             .fill(heatColor(item.remain))
-                            .frame(width: max(1.5, 17 * item.remain / 100), height: 7)
-                            .padding(.leading, 1.5)
+                            .frame(width: max(2, (Self.bodyW - Self.inset * 2) * item.remain / 100),
+                                   height: Self.bodyH - Self.inset * 2)
+                            .padding(.leading, Self.inset)
+                        Text("\(Int(item.remain.rounded()))")
+                            .font(.system(size: 8.5, weight: .heavy, design: .rounded).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.9), radius: 1)
+                            .shadow(color: .black.opacity(0.6), radius: 0.5)
+                            .frame(width: Self.bodyW, height: Self.bodyH)
                     }
-                    RoundedRectangle(cornerRadius: 0.5)
-                        .fill(Color(white: 0.45))
-                        .frame(width: 1.5, height: 4)
+                    RoundedRectangle(cornerRadius: 0.8)
+                        .fill(Color(white: 0.5))
+                        .frame(width: 2, height: 5)
                 }
+            } else {
+                Text("\(Int(item.remain.rounded()))")
+                    .font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(heatColor(item.remain))
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(width: 18, alignment: .leading)
             }
-            Text("\(Int(item.remain.rounded()))")
-                .font(.system(size: 9, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(heatColor(item.remain))
-                .lineLimit(1)
-                .fixedSize()
-                .frame(width: 18, alignment: .leading)
         }
         .frame(width: NotchViewModel.pillWidth(style))
     }

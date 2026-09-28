@@ -56,7 +56,7 @@ enum UpdateState: Equatable {
 @MainActor
 final class NotchViewModel: ObservableObject {
     // 레이아웃 상수
-    static let pillWidth: CGFloat = 64
+    static let pillWidth: CGFloat = 56
     static let compactPillWidth: CGFloat = 40
     static let pillSpacing: CGFloat = 4
     static let wingPadding: CGFloat = 10
@@ -178,9 +178,11 @@ final class NotchViewModel: ObservableObject {
 
     func start() {
         dbg("start")
-        if ProcessInfo.processInfo.environment["AIU_DEBUG_EXPAND"] != nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { self.dbg("auto-expand fire"); self.setExpanded(true) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { self.dbg("auto-collapse fire"); self.setExpanded(false) }
+        if let env = ProcessInfo.processInfo.environment["AIU_DEBUG_EXPAND"] {
+            // 값이 초(≥2)면 그 시각에 펼치고 2초 뒤 접는다. 아니면 4초
+            let t = max(Double(env) ?? 4, 2)
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { self.dbg("auto-expand fire"); self.setExpanded(true) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + t + 2) { self.dbg("auto-collapse fire"); self.setExpanded(false) }
         }
         refreshLoginState()
         dbg("login state ok")
