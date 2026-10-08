@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // AI Usage for Mac — 데이터 코어
 // Claude Code · Cursor · Codex 사용량을 조회해 JSON 한 덩어리로 stdout 에 출력한다.
-// 노치 앱(Swift)이 2분마다 이 스크립트를 실행해 결과를 그린다.
+// 노치 앱(Swift)이 활성 상태에 따라 2~10분마다 실행해 결과를 그린다.
 // 외부 패키지 없음. node 또는 bun 으로 실행.
 
 import { execSync } from "node:child_process";
@@ -137,7 +137,12 @@ function findCCUsage() {
   const npxCmd = npx && existsSync(npx) ? `"${npx}"` : "npx";
   return `PATH="${nodeDir}:$PATH" ${npxCmd} -y ccusage`;
 }
-const CCUSAGE = findCCUsage();
+// 캐시가 유효하면 ccusage/npx 탐색·실행도 생략한다.
+let ccusageCommand;
+function getCCUsageCommand() {
+  if (ccusageCommand === undefined) ccusageCommand = findCCUsage();
+  return ccusageCommand;
+}
 
 // ── 환율 ─────────────────────────────────────────────
 const EXCHANGE_CACHE = `${STATE_DIR}/.exchange-rate.json`;
@@ -179,6 +184,7 @@ const shortModel = (n) => MODEL_NAMES[n] || (n || "").replace("claude-", "");
 
 /** ccusage 활성 블록 (비용·토큰). ccusage 없으면 null */
 function getClaudeBlock() {
+  const CCUSAGE = getCCUsageCommand();
   if (!CCUSAGE) return null;
   try {
     const raw = execSync(`${CCUSAGE} blocks --active --json`, {
@@ -198,6 +204,8 @@ function getClaudeBlock() {
       Math.min(100, ((now - startTs) / span) * 100),
     );
     return {
+      startsAt: startTs,
+      endsAt: endTs,
       elapsedPct,
       remainMin:
         b.projection?.remainingMinutes ??
@@ -214,10 +222,10 @@ function getClaudeBlock() {
 
 /** ccusage 오늘 모델별 비용. ccusage 없으면 null */
 function getClaudeModels() {
+  const CCUSAGE = getCCUsageCommand();
   if (!CCUSAGE) return null;
   try {
-    const d = new Date();
-    const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+    const ymd = localDay();
     const raw = execSync(`${CCUSAGE} daily --breakdown --json --since ${ymd}`, {
       encoding: "utf8",
       timeout: 20000,
@@ -243,6 +251,50 @@ function getClaudeModels() {
   } catch {
     return null;
   }
+}
+
+function localDay() {
+  const d = new Date();
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const CLAUDE_DETAILS_CACHE = `${STATE_DIR}/.claude-details.json`;
+const DETAILS_INTERVAL = 10 * 60;
+
+/** 비용 집계는 로그 전체를 읽을 수 있어 사용량 API보다 느리게 갱신한다. */
+function getClaudeDetails() {
+  if (process.env.AIU_NO_CCUSAGE) return { block: null, models: null, available: false };
+  const day = localDay();
+  const saved = readJSON(CLAUDE_DETAILS_CACHE);
+  const cache = saved?.coreVersion === CORE_VERSION && saved?.day === day ? saved : null;
+  const age = now - (cache?.checkedAt ?? 0);
+  let details = cache;
+  if (!cache || age < 0 || age >= DETAILS_INTERVAL || process.env.AIU_FORCE_DETAILS === "1") {
+    details = {
+      coreVersion: CORE_VERSION,
+      day,
+      checkedAt: now,
+      // 일시적인 실패 시 같은 날짜의 마지막 비용을 유지하고 재시도를 제한한다.
+      block: getClaudeBlock() ?? cache?.block ?? null,
+      models: getClaudeModels() ?? cache?.models ?? null,
+      available: !!getCCUsageCommand(),
+    };
+    writeJSON(CLAUDE_DETAILS_CACHE, details);
+  }
+  let block = details.block;
+  if (block) {
+    if (!Number.isFinite(block.endsAt) || block.endsAt <= now) {
+      block = null;
+    } else {
+      const span = Math.max(1, block.endsAt - block.startsAt);
+      block = {
+        ...block,
+        elapsedPct: Math.max(0, Math.min(100, ((now - block.startsAt) / span) * 100)),
+        remainMin: Math.max(0, Math.floor((block.endsAt - now) / 60)),
+      };
+    }
+  }
+  return { block, models: details.models, available: details.available };
 }
 
 const CLAUDE_USAGE_CACHE = `${STATE_DIR}/.claude-usage.json`;
@@ -641,16 +693,17 @@ const safe = (label, fn) => {
   }
 };
 
+const details = safe("claudeDetails", getClaudeDetails);
 const snapshot = {
   coreVersion: CORE_VERSION,
   now,
   exchangeRateKRW: safe("exchange", getExchangeRateKRW) ?? DEFAULT_KRW_RATE,
   claude: safe("claude", getClaudeUsage),
-  claudeBlock: safe("claudeBlock", getClaudeBlock),
-  claudeModels: safe("claudeModels", getClaudeModels),
+  claudeBlock: details?.block ?? null,
+  claudeModels: details?.models ?? null,
   cursor: safe("cursor", getCursorUsage),
   codex: safe("codex", getCodexUsage),
-  ccusage: !!CCUSAGE,
+  ccusage: details?.available ?? false,
   errors,
 };
 

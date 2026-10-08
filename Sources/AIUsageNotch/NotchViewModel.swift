@@ -97,7 +97,21 @@ final class NotchViewModel: ObservableObject {
     private var clockTimer: Timer?
     private var probeTimer: Timer?
     private var probing = false
+    private var probeAgain = false
+    private var checkingUpdate = false
+    private var lastUpdateCheckAt: Date?
+    private var screenAwake = true
+    private var systemAwake = true
+    private var sessionActive = true
+    private var started = false
+    private var pendingProbe: Task<Void, Never>?
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     @Published var tick = 0 // 리셋 카운트다운 갱신용
+
+    private var backgroundActive: Bool { screenAwake && systemAwake && sessionActive }
+    private var refreshInterval: TimeInterval {
+        ProcessInfo.processInfo.isLowPowerModeEnabled ? 600 : (isExpanded ? 120 : 300)
+    }
 
     var hasUpdate: Bool {
         guard let l = latest else { return false }
@@ -177,6 +191,8 @@ final class NotchViewModel: ObservableObject {
     }
 
     func start() {
+        guard !started else { return }
+        started = true
         dbg("start")
         if let env = ProcessInfo.processInfo.environment["AIU_DEBUG_EXPAND"] {
             // 값이 초(≥2)면 그 시각에 펼치고 2초 뒤 접는다. 아니면 4초
@@ -187,46 +203,140 @@ final class NotchViewModel: ObservableObject {
         refreshLoginState()
         dbg("login state ok")
         requestAccessibilityOnce()
-        startProbe()
+        observeEnvironment()
+        probe()
         refresh()
         checkUpdate()
-        dbg("timers")
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
+        configureTimers()
+    }
+
+    // MARK: 백그라운드 작업 (화면·세션 활성 상태에서만)
+
+    private func observe(_ center: NotificationCenter, _ name: Notification.Name,
+                         action: @escaping @MainActor (NotchViewModel) -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.started else { return }
+                action(self)
+            }
         }
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.checkUpdate() }
+        observers.append((center, token))
+    }
+
+    private func observeEnvironment() {
+        observe(.default, NSApplication.didChangeScreenParametersNotification) { vm in
+            let geometry = NotchGeometry.detect()
+            if vm.geometry != geometry { vm.geometry = geometry }
+            vm.scheduleProbe()
         }
-        clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick += 1 }
+        observe(.default, .NSProcessInfoPowerStateDidChange) { $0.configureTimers() }
+        let workspace = NSWorkspace.shared.notificationCenter
+        // 앱 전환 직후엔 새 메뉴바가 AX 에 아직 안 올라와 있어 잠깐 뒤에 잰다
+        for name in [NSWorkspace.didActivateApplicationNotification,
+                     NSWorkspace.didLaunchApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification,
+                     NSWorkspace.activeSpaceDidChangeNotification] {
+            observe(workspace, name) { $0.scheduleProbe() }
         }
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.geometry = NotchGeometry.detect()
-                self?.probe()
+        observe(workspace, NSWorkspace.screensDidSleepNotification) { vm in
+            vm.changeActivity { vm.screenAwake = false }
+        }
+        observe(workspace, NSWorkspace.screensDidWakeNotification) { vm in
+            vm.changeActivity { vm.screenAwake = true }
+        }
+        observe(workspace, NSWorkspace.willSleepNotification) { vm in
+            vm.changeActivity { vm.systemAwake = false }
+        }
+        observe(workspace, NSWorkspace.didWakeNotification) { vm in
+            vm.changeActivity { vm.systemAwake = true }
+        }
+        observe(workspace, NSWorkspace.sessionDidResignActiveNotification) { vm in
+            vm.changeActivity { vm.sessionActive = false }
+        }
+        observe(workspace, NSWorkspace.sessionDidBecomeActiveNotification) { vm in
+            vm.changeActivity { vm.sessionActive = true }
+        }
+    }
+
+    private func changeActivity(_ change: () -> Void) {
+        let wasActive = backgroundActive
+        change()
+        guard wasActive != backgroundActive else { return }
+        if !backgroundActive {
+            pendingProbe?.cancel()
+            pendingProbe = nil
+            collapse()
+        } else {
+            probe()
+            refreshIfStale()
+            if Date().timeIntervalSince(lastUpdateCheckAt ?? .distantPast) >= 3600 { checkUpdate() }
+        }
+        configureTimers()
+    }
+
+    private func invalidateTimers() {
+        for timer in [refreshTimer, updateTimer, clockTimer, probeTimer] { timer?.invalidate() }
+        refreshTimer = nil
+        updateTimer = nil
+        clockTimer = nil
+        probeTimer = nil
+    }
+
+    /// tolerance 로 다른 시스템 작업과 깨우기 시점을 합친다.
+    private func timer(interval: TimeInterval, lastRun: Date? = nil,
+                       action: @escaping @MainActor (NotchViewModel) -> Void) -> Timer {
+        let next = max(Date().addingTimeInterval(1), (lastRun ?? Date()).addingTimeInterval(interval))
+        let timer = Timer(fire: next, interval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.started, self.backgroundActive else { return }
+                action(self)
+            }
+        }
+        timer.tolerance = interval * 0.1
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
+    }
+
+    private func configureTimers() {
+        invalidateTimers()
+        guard started, backgroundActive else { return }
+        refreshTimer = timer(interval: refreshInterval, lastRun: lastFetchAt) { $0.refreshIfStale() }
+        updateTimer = timer(interval: 3600, lastRun: lastUpdateCheckAt) { $0.checkUpdate() }
+        probeTimer = timer(interval: ProcessInfo.processInfo.isLowPowerModeEnabled ? 60 : 30) { $0.probe() }
+        if isExpanded {
+            clockTimer = timer(interval: 60) { vm in
+                if vm.isExpanded { vm.tick += 1 }
             }
         }
     }
 
+    func stop() {
+        started = false
+        invalidateTimers()
+        pendingProbe?.cancel()
+        pendingProbe = nil
+        for (center, token) in observers { center.removeObserver(token) }
+        observers.removeAll()
+    }
+
+    private func refreshIfStale() {
+        if Date().timeIntervalSince(lastFetchAt ?? .distantPast) >= refreshInterval { refresh() }
+    }
+
     // MARK: 메뉴바 점유 폭 측정
 
-    private func startProbe() {
-        probe()
-        probeTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.probe() }
-        }
-        // 앱 전환 직후엔 새 메뉴바가 AX 에 아직 안 올라와 있어 잠깐 뒤에 잰다
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.probe() }
+    private func scheduleProbe() {
+        pendingProbe?.cancel()
+        guard started, backgroundActive else { return }
+        pendingProbe = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            self?.probe()
         }
     }
 
     func probe() {
-        guard !probing else { return }
+        guard started, backgroundActive else { return }
+        guard !probing else { probeAgain = true; return }
         probing = true
         let input = MenuBarProbe.Input(
             screenFrame: geometry.screenFrame,
@@ -240,6 +350,11 @@ final class NotchViewModel: ObservableObject {
             let trusted = AXIsProcessTrusted()
             await MainActor.run {
                 self.probing = false
+                if self.probeAgain {
+                    self.probeAgain = false
+                    self.scheduleProbe()
+                }
+                guard self.started, self.backgroundActive else { return }
                 if self.axTrusted != trusted { self.axTrusted = trusted }
                 if self.occupancy != o {
                     self.occupancy = o
@@ -275,9 +390,12 @@ final class NotchViewModel: ObservableObject {
     func setExpanded(_ on: Bool) {
         guard isExpanded != on else { return }
         isExpanded = on
+        configureTimers()
         if on {
             bodyVisible = true
             onLayout?()
+            probe()
+            refreshIfStale()
         } else {
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.animDuration + 0.03) { [weak self] in
                 guard let self, !self.isExpanded else { return }
@@ -287,14 +405,14 @@ final class NotchViewModel: ObservableObject {
         }
     }
 
-    func refresh() {
-        guard !isFetching else { return }
+    func refresh(forceDetails: Bool = false) {
+        guard started, backgroundActive, !isFetching else { return }
         isFetching = true
         let core = self.core
         dbg("fetch begin")
         Task.detached(priority: .utility) {
             let t0 = Date()
-            let result = Result { try core.fetch() }
+            let result = Result { try core.fetch(forceDetails: forceDetails) }
             await MainActor.run {
                 self.dbg("fetch done \(Int(Date().timeIntervalSince(t0)))s main=\(Thread.isMainThread)")
                 switch result {
@@ -306,11 +424,15 @@ final class NotchViewModel: ObservableObject {
                 }
                 self.lastFetchAt = Date()
                 self.isFetching = false
+                self.configureTimers()
             }
         }
     }
 
     func checkUpdate() {
+        guard started, backgroundActive, !checkingUpdate else { return }
+        checkingUpdate = true
+        lastUpdateCheckAt = Date()
         let updater = self.updater
         dbg("update check begin")
         Task.detached(priority: .background) {
@@ -319,6 +441,7 @@ final class NotchViewModel: ObservableObject {
             await MainActor.run {
                 self.dbg("update check done \(Int(Date().timeIntervalSince(t0)))s → \(String(describing: l))")
                 if let l { self.latest = l }
+                self.checkingUpdate = false
             }
         }
     }

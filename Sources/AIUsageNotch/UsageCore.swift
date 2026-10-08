@@ -69,7 +69,7 @@ final class UsageCore {
     }
 
     /// 동기 실행. 백그라운드 스레드에서 호출할 것.
-    func fetch() throws -> UsageSnapshot {
+    func fetch(forceDetails: Bool = false) throws -> UsageSnapshot {
         if runtimePath == nil { runtimePath = Self.locateRuntime() }
         guard let runtime = runtimePath else { throw UsageCoreError.nodeNotFound }
         guard let script = scriptURL else { throw UsageCoreError.scriptNotFound }
@@ -83,6 +83,7 @@ final class UsageCore {
             "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
         ].joined(separator: ":")
         env["HOME"] = Self.home
+        if forceDetails { env["AIU_FORCE_DETAILS"] = "1" }
         p.environment = env
         let out = Pipe()
         let err = Pipe()

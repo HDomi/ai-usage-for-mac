@@ -34,7 +34,8 @@ struct ExpandedBody: View {
         .padding(.horizontal, 18)
         .padding(.top, 10)
         .padding(.bottom, 14)
-        .id(vm.tick) // 리셋 카운트다운 30초마다 갱신
+        // vm.tick 의 objectWillChange 로 카운트다운만 다시 계산한다.
+        // .id 를 바꾸면 도넛·버튼까지 전부 파괴/재생성된다.
     }
 
     // MARK: Claude
@@ -169,7 +170,7 @@ struct ExpandedBody: View {
                             .foregroundStyle(.gray)
                     }
                     Spacer()
-                    PanelButton(vm.isFetching ? "갱신 중…" : "🔄 새로고침", tint: Color(white: 0.25)) { vm.refresh() }
+                    PanelButton(vm.isFetching ? "갱신 중…" : "🔄 새로고침", tint: Color(white: 0.25)) { vm.refresh(forceDetails: true) }
                         .disabled(vm.isFetching)
                 }
             }
