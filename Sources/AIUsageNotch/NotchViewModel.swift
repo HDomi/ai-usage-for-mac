@@ -82,6 +82,8 @@ final class NotchViewModel: ObservableObject {
     @Published var launchAtLogin = false
     @Published var bodyHeight: CGFloat = 0
     @Published var occupancy = MenuBarOccupancy.unknown
+    /// 노치 화면이 다른 앱 풀스크린 중. 패널을 숨긴다
+    @Published var fullScreenActive = false
     @Published var axTrusted = AXIsProcessTrusted()
 
     /// 창 프레임 재계산 (NotchController 가 연결). 펼칠 땐 SwiftUI 렌더 전에 동기로 불러야
@@ -345,8 +347,16 @@ final class NotchViewModel: ObservableObject {
             frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
             previous: occupancy
         )
+        let wasFullScreen = fullScreenActive
         Task.detached(priority: .utility) {
             let o = MenuBarProbe.measure(input)
+            var detected = MenuBarProbe.isFullScreen(input)
+            // 숨기는 쪽은 한 번 더 확인 (상태 아이콘 창이 잠깐 빠지는 순간을 풀스크린으로 오인하지 않게)
+            if detected && !wasFullScreen {
+                try? await Task.sleep(for: .milliseconds(400))
+                detected = MenuBarProbe.isFullScreen(input)
+            }
+            let fullScreen = detected
             let trusted = AXIsProcessTrusted()
             await MainActor.run {
                 self.probing = false
@@ -356,6 +366,11 @@ final class NotchViewModel: ObservableObject {
                 }
                 guard self.started, self.backgroundActive else { return }
                 if self.axTrusted != trusted { self.axTrusted = trusted }
+                if self.fullScreenActive != fullScreen {
+                    self.fullScreenActive = fullScreen
+                    if fullScreen { self.collapse() }
+                    self.dbg("fullScreen=\(fullScreen)")
+                }
                 if self.occupancy != o {
                     self.occupancy = o
                     self.dbg("occupancy L=\(o.left.map { "\(Int($0))" } ?? "?") R=\(Int(o.right)) avail L=\(self.leftAvailable.map { "\(Int($0))" } ?? "?") R=\(Int(self.rightAvailable)) wings=\(Int(self.wingLeft))/\(Int(self.wingRight)) style=\(self.leftLayout.style)/\(self.rightLayout.style)")

@@ -58,6 +58,8 @@ final class NotchController {
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
         vm.$occupancy.dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
+        vm.$fullScreenActive.dropFirst().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.layout() }.store(in: &cancellables)
 
         // 패널 밖 클릭 → 접기 (글로벌 모니터는 자기 앱 이벤트를 받지 않음)
         globalMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -78,6 +80,11 @@ final class NotchController {
     /// 펼친 직후 본문 높이를 모르므로 최대 높이로 열고, 측정되면 줄인다.
     /// 창 크기는 애니메이션하지 않는다. 남는 영역은 투명이고, 보이는 높이는 뷰가 애니메이션한다.
     func layout() {
+        // 다른 앱 풀스크린 중엔 영상·게임 위에 겹치지 않게 내린다
+        if vm.fullScreenActive {
+            if panel.isVisible { panel.orderOut(nil) }
+            return
+        }
         let g = vm.geometry
         let width = vm.currentWidth
         let body: CGFloat

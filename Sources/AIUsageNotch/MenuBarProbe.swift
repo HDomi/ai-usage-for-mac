@@ -67,6 +67,36 @@ enum MenuBarProbe {
         return sc.maxX - minX
     }
 
+    /// 노치 화면이 다른 앱 풀스크린 Space(영상·게임·네이티브 풀스크린)에 들어가 있으면 true.
+    /// .canJoinAllSpaces 창은 .fullScreenAuxiliary 를 빼도 풀스크린 Space 에 따라가므로 직접 감지한다.
+    /// 조건: 다른 앱 일반 레벨 창이 화면 폭 전체 + 메뉴바(노치 아래)부터 바닥까지 덮고,
+    /// 화면 상단에 상태 아이콘이 하나도 없다 (최대화 창과 구분 — 메뉴바가 보이면 상태 아이콘이 있다).
+    static func isFullScreen(_ i: Input) -> Bool {
+        let primaryMaxY = i.screens.first?.maxY ?? i.screenFrame.maxY
+        let sc = cgRect(i.screenFrame, primaryMaxY: primaryMaxY)
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+        let me = Int(ProcessInfo.processInfo.processIdentifier)
+        var covered = false
+        for w in list {
+            guard (w[kCGWindowOwnerPID as String] as? Int) != me,
+                  let layer = w[kCGWindowLayer as String] as? Int,
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = b["X"], let y = b["Y"], let wd = b["Width"], let h = b["Height"]
+            else { continue }
+            if layer == statusLevel, abs(y - sc.minY) <= 2, x >= sc.minX, x < sc.maxX {
+                return false
+            }
+            if layer == 0, ((w[kCGWindowAlpha as String] as? Double) ?? 1) > 0,
+               x <= sc.minX + 1, x + wd >= sc.maxX - 1,
+               y >= sc.minY - 1, y <= sc.minY + i.menuBarHeight + 1, y + h >= sc.maxY - 1 {
+                covered = true
+            }
+        }
+        return covered
+    }
+
     /// 최전방 앱 AXMenuBar 자식들의 오른쪽 끝 → 그 화면 왼쪽 끝부터의 거리
     static func measureLeft(pid: pid_t, screens: [CGRect]) -> CGFloat? {
         let app = AXUIElementCreateApplication(pid)
