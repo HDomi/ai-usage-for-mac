@@ -193,6 +193,10 @@ struct ExpandedBody: View {
                         .font(.system(size: 10)).foregroundStyle(.gray)
                 }
                 Spacer()
+                Toggle("배터리 항상 표시", isOn: $vm.alwaysShowBatteries)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.gray)
                 Toggle("로그인 시 실행", isOn: Binding(
                     get: { vm.launchAtLogin },
                     set: { vm.setLaunchAtLogin($0) }

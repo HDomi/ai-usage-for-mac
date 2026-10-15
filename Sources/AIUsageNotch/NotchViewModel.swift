@@ -60,6 +60,8 @@ final class NotchViewModel: ObservableObject {
     static let compactPillWidth: CGFloat = 40
     static let pillSpacing: CGFloat = 4
     static let wingPadding: CGFloat = 10
+    /// 배터리 숨김 모드의 세로 배터리 아이콘 폭
+    static let miniIconWidth: CGFloat = 10
     /// 날개와 이웃(앱 메뉴·상태 아이콘) 사이 최소 간격
     static let edgeMargin: CGFloat = 8
     nonisolated static let virtualNotchWidth: CGFloat = 16
@@ -85,6 +87,14 @@ final class NotchViewModel: ObservableObject {
     /// 노치 화면이 다른 앱 풀스크린 중. 패널을 숨긴다
     @Published var fullScreenActive = false
     @Published var axTrusted = AXIsProcessTrusted()
+    /// false 면 접힘 상태에서 알약 대신 노치 옆 세로 배터리 아이콘 하나만 그린다
+    @Published var alwaysShowBatteries =
+        UserDefaults.standard.object(forKey: NotchViewModel.alwaysShowKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(alwaysShowBatteries, forKey: Self.alwaysShowKey)
+            onLayout?()
+        }
+    }
 
     /// 창 프레임 재계산 (NotchController 가 연결). 펼칠 땐 SwiftUI 렌더 전에 동기로 불러야
     /// 창 크기 변화가 reveal 애니메이션과 같은 트랜잭션에 섞이지 않는다
@@ -122,6 +132,8 @@ final class NotchViewModel: ObservableObject {
 
     var leftItems: [BatteryItem] { snapshot?.leftItems ?? [] }
     var rightItems: [BatteryItem] { snapshot?.rightItems ?? [] }
+    /// 세로 배터리 아이콘에 표시할 잔량. 가장 적게 남은 항목 기준
+    var minRemain: Double? { (leftItems + rightItems).map(\.remain).min() }
 
     // MARK: 날개 레이아웃 (메뉴바 점유 폭에 맞춰 좌우 따로)
 
@@ -160,9 +172,18 @@ final class NotchViewModel: ObservableObject {
         (geometry.screenFrame.maxX - geometry.notchMaxX) - occupancy.right - Self.edgeMargin
     }
 
-    var leftLayout: WingLayout { Self.fit(leftItems, available: leftAvailable) }
+    /// 배터리 숨김 + 접힘. 펼친 동안(bodyVisible)은 기존 알약을 그대로 보여준다
+    var miniMode: Bool { !alwaysShowBatteries && !bodyVisible }
+
+    var leftLayout: WingLayout {
+        if miniMode { return WingLayout(items: [], style: .compact, width: 0) }
+        return Self.fit(leftItems, available: leftAvailable)
+    }
 
     var rightLayout: WingLayout {
+        if miniMode {
+            return WingLayout(items: [], style: .compact, width: Self.miniIconWidth + Self.wingPadding * 2)
+        }
         // 둘 다 비면 오른쪽에 자리표시자를 그리므로 알약 하나 폭은 확보
         let minW = leftItems.isEmpty && rightItems.isEmpty ? Self.pillWidth + Self.wingPadding * 2 : 0
         return Self.fit(rightItems, available: rightAvailable, minWidth: minW)
@@ -382,6 +403,7 @@ final class NotchViewModel: ObservableObject {
     // MARK: 접근성 권한 (왼쪽 앱 메뉴 폭 측정용)
 
     private static let axPromptedKey = "AccessibilityPrompted"
+    private static let alwaysShowKey = "AlwaysShowBatteries"
 
     /// 첫 실행에 한 번만 시스템 다이얼로그. 이후엔 패널 버튼으로 설정 창을 연다
     func requestAccessibilityOnce() {

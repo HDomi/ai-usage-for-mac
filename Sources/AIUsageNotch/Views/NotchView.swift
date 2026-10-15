@@ -73,7 +73,9 @@ struct NotchView: View {
 
             HStack(spacing: NotchViewModel.pillSpacing) {
                 ForEach(right.items) { BatteryPill(item: $0, style: right.style) }
-                if vm.leftItems.isEmpty && vm.rightItems.isEmpty {
+                if vm.miniMode {
+                    MiniBattery(remain: vm.minRemain)
+                } else if vm.leftItems.isEmpty && vm.rightItems.isEmpty {
                     Text(vm.isFetching ? "…" : "🔋 —")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.gray)
@@ -91,6 +93,36 @@ struct NotchView: View {
 func heatColor(_ remain: Double) -> Color {
     let r = max(0, min(100, remain)) / 100
     return Color(hue: 0.33 * r, saturation: 0.85, brightness: 0.95)
+}
+
+/// 배터리 숨김 모드의 노치 옆 세로 배터리. remain=nil 이면 빈 외곽선만
+struct MiniBattery: View {
+    let remain: Double?
+
+    private static let bodyW: CGFloat = 9
+    private static let bodyH: CGFloat = 15
+    private static let inset: CGFloat = 1.5
+
+    var body: some View {
+        VStack(spacing: 1) {
+            RoundedRectangle(cornerRadius: 0.8)
+                .fill(Color(white: 0.5))
+                .frame(width: 4, height: 2)
+            ZStack(alignment: .bottom) {
+                RoundedRectangle(cornerRadius: 2.5)
+                    .stroke(Color(white: 0.5), lineWidth: 1)
+                    .frame(width: Self.bodyW, height: Self.bodyH)
+                if let r = remain {
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(heatColor(r))
+                        .frame(width: Self.bodyW - Self.inset * 2,
+                               height: max(1.5, (Self.bodyH - Self.inset * 2) * max(0, min(100, r)) / 100))
+                        .padding(.bottom, Self.inset)
+                }
+            }
+        }
+        .frame(width: NotchViewModel.miniIconWidth)
+    }
 }
 
 /// 노치 옆 미니 배터리: 라벨 + 잔량 바(안에 %). compact 면 바 없이 라벨 + 숫자
