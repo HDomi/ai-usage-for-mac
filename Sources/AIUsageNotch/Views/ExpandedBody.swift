@@ -207,6 +207,35 @@ struct ExpandedBody: View {
                 PanelButton("⭐ GitHub", tint: Color(white: 0.2)) { vm.openRepo() }
                 PanelButton("✕ 종료", tint: Color(white: 0.2)) { vm.quit() }
             }
+
+            if !vm.alwaysShowBatteries && !vm.allItems.isEmpty {
+                // 항목이 많아(Cursor 포함 최대 7개) 한 줄에 안 들어가면 짧은 라벨로
+                ViewThatFits(in: .horizontal) {
+                    miniItemPicker(short: false)
+                    miniItemPicker(short: true)
+                }
+            }
+        }
+    }
+
+    /// 배터리 숨김 모드에서 노치에 띄울 항목 하나 고르기.
+    /// 체크박스지만 하나만 고를 수 있다. 체크된 걸 다시 눌러도 해제되지 않는다
+    private func miniItemPicker(short: Bool) -> some View {
+        HStack(spacing: 10) {
+            Spacer(minLength: 0)
+            Text("노치에 표시할 배터리")
+                .font(.system(size: 10)).foregroundStyle(.gray)
+            ForEach(vm.allItems) { item in
+                Toggle(short ? item.label : item.title, isOn: Binding(
+                    get: { vm.miniItem?.id == item.id },
+                    set: { if $0 { vm.miniItemID = item.id } }
+                ))
+                .toggleStyle(.checkbox)
+                .font(.system(size: 10))
+                .foregroundStyle(.gray)
+                .fixedSize()
+                .help(item.title)
+            }
         }
     }
 }

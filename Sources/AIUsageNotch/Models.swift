@@ -93,6 +93,20 @@ struct BatteryItem: Identifiable, Equatable {
     /// 공간 부족 시 숨김 순서. 작을수록 끝까지 남는다
     let priority: Int
     var id: String { label }
+
+    /// 설정에 보여줄 이름
+    var title: String {
+        switch label {
+        case "C5": return "Claude 5시간"
+        case "CW": return "Claude 주간"
+        case "CF": return "Claude 모델별"
+        case "Cr": return "Cursor Auto"
+        case "Co": return "Cursor API"
+        case "X": return "Codex 5시간"
+        case "XW": return "Codex 주간"
+        default: return label
+        }
+    }
 }
 
 extension UsageSnapshot {
