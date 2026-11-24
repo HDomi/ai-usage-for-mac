@@ -84,6 +84,11 @@ struct UsageSnapshot: Codable, Equatable {
     var isEmpty: Bool { !hasClaude && !hasCursor && !hasCodex }
 }
 
+/// 사용량을 보여주는 서비스. 패널의 열 하나
+enum Agent: String, CaseIterable {
+    case claude, codex, cursor
+}
+
 /// 노치 양옆에 그리는 미니 배터리 하나
 struct BatteryItem: Identifiable, Equatable {
     enum Side { case left, right }
@@ -93,6 +98,14 @@ struct BatteryItem: Identifiable, Equatable {
     /// 공간 부족 시 숨김 순서. 작을수록 끝까지 남는다
     let priority: Int
     var id: String { label }
+
+    var agent: Agent {
+        switch label {
+        case "Cr", "Co": return .cursor
+        case "X", "XW": return .codex
+        default: return .claude
+        }
+    }
 
     /// 설정에 보여줄 이름
     var title: String {

@@ -100,6 +100,24 @@ final class NotchViewModel: ObservableObject {
         didSet { UserDefaults.standard.set(miniItemID, forKey: Self.miniItemKey) }
     }
 
+    /// 접힘 바(노치 날개)에 띄우지 않을 에이전트. 비어 있으면 전부 표시
+    @Published var floatingHidden: Set<String> =
+        Set(UserDefaults.standard.stringArray(forKey: NotchViewModel.floatingHiddenKey) ?? []) {
+        didSet {
+            UserDefaults.standard.set(floatingHidden.sorted(), forKey: Self.floatingHiddenKey)
+            onLayout?()
+        }
+    }
+    /// Claude 단일 노출: 바에 Claude 주간(노치 왼쪽)·5시간(노치 오른쪽)만 그린다.
+    /// 다른 에이전트·모델별(Fable)·플로팅 표시·배터리 숨김 설정보다 우선한다
+    @Published var claudeSingle = UserDefaults.standard.bool(forKey: NotchViewModel.claudeSingleKey) {
+        didSet {
+            UserDefaults.standard.set(claudeSingle, forKey: Self.claudeSingleKey)
+            if claudeSingle { collapse() }
+            onLayout?()
+        }
+    }
+
     /// 창 프레임 재계산 (NotchController 가 연결). 펼칠 땐 SwiftUI 렌더 전에 동기로 불러야
     /// 창 크기 변화가 reveal 애니메이션과 같은 트랜잭션에 섞이지 않는다
     var onLayout: (() -> Void)?
@@ -134,8 +152,22 @@ final class NotchViewModel: ObservableObject {
         return Updater.cmpVer(l.version, version) > 0
     }
 
-    var leftItems: [BatteryItem] { snapshot?.leftItems ?? [] }
-    var rightItems: [BatteryItem] { snapshot?.rightItems ?? [] }
+    func isFloating(_ agent: Agent) -> Bool { !floatingHidden.contains(agent.rawValue) }
+
+    func setFloating(_ agent: Agent, _ on: Bool) {
+        if on { floatingHidden.remove(agent.rawValue) } else { floatingHidden.insert(agent.rawValue) }
+    }
+
+    /// 바에 그릴 항목. 스냅샷 전체에서 단일 노출 · 플로팅 표시 설정을 적용한 결과
+    var leftItems: [BatteryItem] {
+        let claude = snapshot?.leftItems ?? []
+        if claudeSingle { return claude.filter { $0.label == "CW" } }
+        return claude.filter { isFloating($0.agent) }
+    }
+    var rightItems: [BatteryItem] {
+        if claudeSingle { return (snapshot?.leftItems ?? []).filter { $0.label == "C5" } }
+        return (snapshot?.rightItems ?? []).filter { isFloating($0.agent) }
+    }
     var allItems: [BatteryItem] { leftItems + rightItems }
     /// 배터리 숨김 모드에 표시할 항목. 선택한 항목이 지금 없으면 첫 항목
     var miniItem: BatteryItem? {
@@ -182,7 +214,7 @@ final class NotchViewModel: ObservableObject {
     }
 
     /// 배터리 숨김 + 접힘. 펼친 동안(bodyVisible)은 기존 알약을 그대로 보여준다
-    var miniMode: Bool { !alwaysShowBatteries && !bodyVisible }
+    var miniMode: Bool { !alwaysShowBatteries && !bodyVisible && !claudeSingle }
 
     var leftLayout: WingLayout {
         if miniMode { return WingLayout(items: [], style: .compact, width: Self.miniWingWidth) }
@@ -414,6 +446,8 @@ final class NotchViewModel: ObservableObject {
     private static let axPromptedKey = "AccessibilityPrompted"
     private static let alwaysShowKey = "AlwaysShowBatteries"
     private static let miniItemKey = "MiniBatteryItem"
+    private static let floatingHiddenKey = "FloatingHiddenAgents"
+    private static let claudeSingleKey = "ClaudeSingleExposure"
 
     /// 첫 실행에 한 번만 시스템 다이얼로그. 이후엔 패널 버튼으로 설정 창을 연다
     func requestAccessibilityOnce() {

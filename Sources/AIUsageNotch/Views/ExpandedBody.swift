@@ -10,9 +10,9 @@ struct ExpandedBody: View {
         VStack(alignment: .leading, spacing: 14) {
             if let s = vm.snapshot {
                 HStack(alignment: .top, spacing: 16) {
-                    claudeColumn(s).frame(maxWidth: .infinity, alignment: .leading)
-                    codexColumn(s).frame(maxWidth: .infinity, alignment: .leading)
-                    cursorColumn(s).frame(maxWidth: .infinity, alignment: .leading)
+                    agentColumn(.claude) { claudeColumn(s) }
+                    agentColumn(.codex) { codexColumn(s) }
+                    agentColumn(.cursor) { cursorColumn(s) }
                 }
             } else if vm.isFetching {
                 HStack(spacing: 8) {
@@ -36,6 +36,27 @@ struct ExpandedBody: View {
         .padding(.bottom, 14)
         // vm.tick 의 objectWillChange 로 카운트다운만 다시 계산한다.
         // .id 를 바꾸면 도넛·버튼까지 전부 파괴/재생성된다.
+    }
+
+    /// 열 위에 "플로팅 표시" 체크박스: 이 에이전트 배터리를 접힘 바에 띄울지
+    private func agentColumn<Content: View>(_ agent: Agent, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            optionToggle("플로팅 표시", isOn: Binding(
+                get: { vm.isFloating(agent) },
+                set: { vm.setFloating(agent, $0) }
+            ))
+            .help("접힌 바에 이 에이전트 배터리를 표시")
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func optionToggle(_ title: String, isOn: Binding<Bool>) -> some View {
+        Toggle(title, isOn: isOn)
+            .toggleStyle(.checkbox)
+            .font(.system(size: 10))
+            .foregroundStyle(.gray)
+            .fixedSize()
     }
 
     // MARK: Claude
@@ -79,6 +100,9 @@ struct ExpandedBody: View {
                     SubLine("  \(mc.short)  \(Fmt.usd(mc.cost, 1)) (\(Fmt.krw(mc.cost, rate: s.exchangeRateKRW)))")
                 }
             }
+            optionToggle("단일 노출", isOn: $vm.claudeSingle)
+                .help("바에 Claude 주간(왼쪽)·5시간(오른쪽)만 표시")
+                .padding(.top, 2)
         }
     }
 
@@ -208,7 +232,7 @@ struct ExpandedBody: View {
                 PanelButton("✕ 종료", tint: Color(white: 0.2)) { vm.quit() }
             }
 
-            if !vm.alwaysShowBatteries && !vm.allItems.isEmpty {
+            if !vm.alwaysShowBatteries && !vm.claudeSingle && !vm.allItems.isEmpty {
                 // 항목이 많아(Cursor 포함 최대 7개) 한 줄에 안 들어가면 짧은 라벨로
                 ViewThatFits(in: .horizontal) {
                     miniItemPicker(short: false)
