@@ -11,8 +11,14 @@ struct MenuBarOccupancy: Equatable {
     static let unknown = MenuBarOccupancy(left: nil, right: 0)
 }
 
+@_silgen_name("CGSMainConnectionID")
+private func CGSMainConnectionID() -> Int32
+@_silgen_name("CGSCopyManagedDisplaySpaces")
+private func CGSCopyManagedDisplaySpaces(_ connection: Int32) -> CFArray?
+
 /// 메뉴바 점유 폭 측정.
 /// 오른쪽: 상태 아이콘은 status 레벨 윈도우라 CGWindowList 로 권한 없이 읽는다.
+///   그렇게 안 잡히는 macOS 에서는 MenuBarAgent 의 AX 로 읽는다 (접근성 권한 필요).
 /// 왼쪽: 앱 메뉴는 윈도우가 아니라 최전방 앱의 AXMenuBar 로 읽는다 (접근성 권한 필요).
 enum MenuBarProbe {
     struct Input {
@@ -34,10 +40,12 @@ enum MenuBarProbe {
         let primaryMaxY = i.screens.first?.maxY ?? i.screenFrame.maxY
         let cgScreens = i.screens.map { cgRect($0, primaryMaxY: primaryMaxY) }
         let target = cgRect(i.screenFrame, primaryMaxY: primaryMaxY)
-        let right = measureRight(screen: target, menuBarHeight: i.menuBarHeight)
+        let trusted = AXIsProcessTrusted()
+        var right = measureRight(screen: target, menuBarHeight: i.menuBarHeight)
+        if right == 0, trusted, let ax = measureRightAX(screen: target) { right = ax }
 
         let left: CGFloat?
-        if !AXIsProcessTrusted() {
+        if !trusted {
             left = nil
         } else if let pid = i.frontmostPID, pid != ProcessInfo.processInfo.processIdentifier {
             left = measureLeft(pid: pid, screens: cgScreens)
@@ -67,13 +75,47 @@ enum MenuBarProbe {
         return sc.maxX - minX
     }
 
+    /// 메뉴바를 그리는 시스템 프로세스 (상태 아이콘이 개별 창이 아닌 macOS)
+    static let menuBarAgentBundleID = "com.apple.MenuBarAgent"
+
+    /// measureRight 가 못 재는 macOS 용. 메뉴바 전체를 MenuBarAgent 가 화면마다 창 하나로 그려
+    /// 상태 아이콘이 status 레벨 창으로 안 잡히므로, 그 창의 AX 자식(상태 아이콘 그룹) 위치를 읽는다.
+    /// 접근성 권한 필요. nil = 측정 불가
+    static func measureRightAX(screen sc: CGRect) -> CGFloat? {
+        guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: menuBarAgentBundleID)
+            .first?.processIdentifier else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        guard let bars: [AXUIElement] = attr(app, kAXChildrenAttribute) else { return nil }
+        var minX = CGFloat.infinity
+        // 같은 화면에 메뉴바 창이 여러 장 겹쳐 있다. 이 화면 것만 전부 본다
+        for bar in bars {
+            guard let bp = axPoint(bar, kAXPositionAttribute),
+                  let bs = axSize(bar, kAXSizeAttribute),
+                  abs(bp.x - sc.minX) <= 2, abs(bp.y - sc.minY) <= 2, abs(bs.width - sc.width) <= 2,
+                  let items: [AXUIElement] = attr(bar, kAXChildrenAttribute)
+            else { continue }
+            for item in items {
+                guard let p = axPoint(item, kAXPositionAttribute),
+                      let s = axSize(item, kAXSizeAttribute),
+                      s.width > 0, s.width < sc.width / 2, p.x >= sc.midX, p.x < sc.maxX
+                else { continue }
+                minX = min(minX, p.x)
+            }
+        }
+        return minX.isFinite ? sc.maxX - minX : nil
+    }
+
     /// 노치 화면이 다른 앱 풀스크린 Space(영상·게임·네이티브 풀스크린)에 들어가 있으면 true.
     /// .canJoinAllSpaces 창은 .fullScreenAuxiliary 를 빼도 풀스크린 Space 에 따라가므로 직접 감지한다.
-    /// 조건: 다른 앱 일반 레벨 창이 화면 폭 전체 + 메뉴바(노치 아래)부터 바닥까지 덮고,
+    /// 1순위: 노치 화면의 현재 Space 종류 (nativeFullScreen).
+    /// 2순위(Space 조회 실패 시): 다른 앱 일반 레벨 창이 화면 폭 전체 + 메뉴바(노치 아래)부터 바닥까지 덮고,
     /// 화면 상단에 상태 아이콘이 하나도 없다 (최대화 창과 구분 — 메뉴바가 보이면 상태 아이콘이 있다).
+    /// 2순위만으로는 상태 아이콘이 status 레벨 창으로 안 잡히는 macOS 에서 최대화 창을 풀스크린으로 오인한다.
     static func isFullScreen(_ i: Input) -> Bool {
         let primaryMaxY = i.screens.first?.maxY ?? i.screenFrame.maxY
         let sc = cgRect(i.screenFrame, primaryMaxY: primaryMaxY)
+        if let native = nativeFullScreen(screen: sc) { return native }
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return false
         }
@@ -96,6 +138,32 @@ enum MenuBarProbe {
         }
         return covered
     }
+
+    /// 이 화면(CG 좌표)의 현재 Space 가 네이티브 풀스크린 Space 인지. nil = 판단 불가.
+    /// 공개 API 로는 Space 종류를 알 수 없어 CGS(비공개) 를 쓴다. 실패하면 nil 로 돌려 창 배치 추정에 맡긴다.
+    static func nativeFullScreen(screen sc: CGRect) -> Bool? {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(UInt32(ids.count), &ids, &count) == .success,
+              let id = ids.prefix(Int(count)).first(where: {
+                  let b = CGDisplayBounds($0)
+                  return abs(b.minX - sc.minX) <= 1 && abs(b.minY - sc.minY) <= 1 && abs(b.width - sc.width) <= 1
+              }),
+              let cfUUID = CGDisplayCreateUUIDFromDisplayID(id)?.takeRetainedValue(),
+              let uuid = CFUUIDCreateString(nil, cfUUID) as String?,
+              let displays = CGSCopyManagedDisplaySpaces(CGSMainConnectionID()) as? [[String: Any]]
+        else { return nil }
+        // "디스플레이마다 별도 Spaces" 가 꺼져 있으면 항목이 하나("Main")뿐이다
+        let match = displays.first { ($0["Display Identifier"] as? String) == uuid }
+            ?? (displays.count == 1 ? displays[0] : nil)
+        guard let current = match?["Current Space"] as? [String: Any],
+              let type = current["type"] as? Int
+        else { return nil }
+        return type == fullScreenSpaceType
+    }
+
+    /// CGS Space 종류: 0 = 일반 데스크톱, 4 = 풀스크린
+    static let fullScreenSpaceType = 4
 
     /// 최전방 앱 AXMenuBar 자식들의 오른쪽 끝 → 그 화면 왼쪽 끝부터의 거리
     static func measureLeft(pid: pid_t, screens: [CGRect]) -> CGFloat? {
